@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -802,6 +805,76 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 			}
 
 			break
+		}
+
+	case packager.Type.Loot.Type:
+
+		switch pk.Body.SubEvent {
+		case packager.Type.Loot.GetFile:
+			var (
+				AgentID  = pk.Body.Info["AgentID"].(string)
+				FileName = pk.Body.Info["FileName"].(string)
+				ClientID string
+			)
+
+			t.Clients.Range(func(key, value any) bool {
+				Client := value.(*Client)
+				if Client.Username == pk.Head.User {
+					ClientID = Client.ClientID
+					return false
+				}
+				return true
+			})
+
+			if len(ClientID) == 0 {
+				return
+			}
+
+			// downloads are stored under <loot>/agents/<AgentID>/Download/,
+			// preserving the remote directory structure. find the newest file
+			// matching the requested base name.
+			var (
+				DownloadDir = filepath.Clean(logr.LogrInstance.AgentPath + "/" + AgentID + "/Download")
+				FoundPath   string
+				FoundTime   time.Time
+			)
+
+			if !strings.HasPrefix(DownloadDir, filepath.Clean(logr.LogrInstance.AgentPath)) {
+				logger.Error("Loot GetFile: path traversal attempt (AgentID): " + AgentID)
+				t.SendEvent(ClientID, events.Loot.SendError("Invalid agent id"))
+				return
+			}
+
+			err := filepath.WalkDir(DownloadDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && d.Name() == FileName {
+					if info, err := d.Info(); err == nil && info.ModTime().After(FoundTime) {
+						FoundPath = path
+						FoundTime = info.ModTime()
+					}
+				}
+				return nil
+			})
+
+			if err != nil || len(FoundPath) == 0 {
+				logger.Error("Loot GetFile: file not found: " + FileName)
+				t.SendEvent(ClientID, events.Loot.SendError("File not found on teamserver: "+FileName))
+				return
+			}
+
+			Content, err := os.ReadFile(FoundPath)
+			if err != nil {
+				logger.Error("Loot GetFile: failed to read file: " + err.Error())
+				t.SendEvent(ClientID, events.Loot.SendError("Failed to read file: "+FileName))
+				return
+			}
+
+			err = t.SendEvent(ClientID, events.Loot.SendFile(AgentID, FileName, Content))
+			if err != nil {
+				logger.Error("Loot GetFile: couldn't send event: " + err.Error())
+			}
 		}
 
 	case packager.Type.Gate.Type:

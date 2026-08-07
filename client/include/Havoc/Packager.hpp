@@ -94,6 +94,14 @@ namespace HavocNamespace::Util::Packager
         extern const int Logger;
         extern const int Profile;
     }
+
+    namespace Loot
+    {
+        extern const int Type;
+        extern const int GetFile;
+        extern const int SendFile;
+        extern const int Error;
+    }
 }
 
 auto NewPackageCommand( const QString& Teamserver, Util::Packager::Body_t Body ) -> void;
@@ -117,6 +125,7 @@ public:
     bool DispatchGate( Util::Packager::PPackage Package );
     bool DispatchService( Util::Packager::PPackage Package );
     bool DispatchTeamserver( Util::Packager::PPackage Package );
+    bool DispatchLoot( Util::Packager::PPackage Package );
 };
 
 #endif //HAVOC_PACKAGER_H

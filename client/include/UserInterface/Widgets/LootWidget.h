@@ -11,6 +11,7 @@
 #include <QtWidgets/QWidget>
 #include <QLabel>
 #include <QScrollArea>
+#include <QMap>
 
 class ImageLabel : public QWidget
 {
@@ -79,6 +80,13 @@ public:
     QMenu*          ScreenshotMenu;
     QAction*        ScreenshotActionDownload;
 
+    QMenu*          DownloadMenu;
+    QAction*        DownloadActionSave;
+
+    // local save path chosen by the user, keyed by "AgentID/FileName",
+    // for loot files requested from the teamserver
+    QMap<QString, QString> PendingSave;
+
     QSpacerItem*    horizontalSpacer;
     QStackedWidget* StackWidget;
     QWidget*        Screenshots;
@@ -101,12 +109,18 @@ public:
     void ScreenshotTableAdd( const QString& Name, const QString& Date );
     void DownloadTableAdd( const QString& Name, const QString& Size, const QString& Date );
 
+    void SaveLootFile( const QString& AgentID, const QString& FileName, const QByteArray& Data );
+    void LootError( const QString& Error );
+
 private Q_SLOTS:
     void onAgentChange( const QString& text );
     void onShowChange( const QString& text );
     void onScreenshotTableClick( const QModelIndex &index );
     void onDownloadTableClick( const QModelIndex &index );
     void onScreenshotTableCtx( const QPoint &pos );
+    void onDownloadTableCtx( const QPoint &pos );
+    void onScreenshotSave();
+    void onDownloadSave();
 };
 
 

@@ -18,6 +18,7 @@
 #include <QScrollBar>
 #include <QByteArray>
 #include <QJsonArray>
+#include <QMessageBox>
 #include <QDir>
 
 const int Util::Packager::InitConnection::Type      = 0x1;
@@ -57,6 +58,11 @@ const int Util::Packager::Service::ListenerRegister = 0x2;
 const int Util::Packager::Teamserver::Type          = 0x10;
 const int Util::Packager::Teamserver::Logger        = 0x1;
 const int Util::Packager::Teamserver::Profile       = 0x2;
+
+const int Util::Packager::Loot::Type                = 0x11;
+const int Util::Packager::Loot::GetFile             = 0x1;
+const int Util::Packager::Loot::SendFile            = 0x2;
+const int Util::Packager::Loot::Error               = 0x3;
 
 using HavocNamespace::UserInterface::Widgets::ScriptManager;
 
@@ -156,6 +162,9 @@ auto Packager::DispatchPackage( Util::Packager::PPackage Package ) -> bool
 
         case Util::Packager::Teamserver::Type:
             return DispatchTeamserver( Package );
+
+        case Util::Packager::Loot::Type:
+            return DispatchLoot( Package );
 
         default:
             spdlog::info( "[PACKAGE] Event Id not found" );
@@ -987,4 +996,39 @@ bool Packager::DispatchTeamserver( Util::Packager::PPackage Package )
 void Packager::setTeamserver( QString Name )
 {
     this->TeamserverName = Name;
+}
+
+bool Packager::DispatchLoot( Util::Packager::PPackage Package )
+{
+    switch ( Package->Body.SubEvent )
+    {
+        case Util::Packager::Loot::SendFile:
+        {
+            auto AgentID  = QString( Package->Body.Info[ "AgentID" ].c_str() );
+            auto FileName = QString( Package->Body.Info[ "FileName" ].c_str() );
+            auto Content  = QByteArray::fromBase64( QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit() );
+
+            if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
+            {
+                HavocX::Teamserver.TabSession->LootWidget->SaveLootFile( AgentID, FileName, Content );
+            }
+            break;
+        }
+
+        case Util::Packager::Loot::Error:
+        {
+            auto Error = QString( Package->Body.Info[ "Error" ].c_str() );
+
+            if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
+            {
+                HavocX::Teamserver.TabSession->LootWidget->LootError( Error );
+            }
+            else
+            {
+                QMessageBox::warning( nullptr, "Loot", Error );
+            }
+            break;
+        }
+    }
+    return true;
 }

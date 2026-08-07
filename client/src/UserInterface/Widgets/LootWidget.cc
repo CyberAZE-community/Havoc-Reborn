@@ -1,12 +1,19 @@
 #include <global.hpp>
 #include <spdlog/spdlog.h>
 
+#include <Havoc/Packager.hpp>
+#include <Havoc/Connector.hpp>
+
+#include <Util/Base.hpp>
+
 #include <UserInterface/Widgets/LootWidget.h>
 #include <QGraphicsScene>
 #include <QGraphicsView>
 #include <QGraphicsPixmapItem>
 #include <QLabel>
 #include <QFile>
+#include <QFileDialog>
+#include <QMessageBox>
 #include <QTreeWidgetItem>
 #include <QHeaderView>
 #include <QScrollBar>
@@ -233,12 +240,21 @@ LootWidget::LootWidget()
     LabelShow->setText( "Show: " );
 
     ScreenshotMenu           = new QMenu( this );
-    ScreenshotActionDownload = new QAction( "Download" );
+    ScreenshotActionDownload = new QAction( "Get file" );
 
     ScreenshotMenu->setStyleSheet( MenuStyle );
     ScreenshotMenu->addAction( ScreenshotActionDownload );
 
-    connect( this, &QTableWidget::customContextMenuRequested, this, &LootWidget::onScreenshotTableCtx );
+    DownloadMenu       = new QMenu( this );
+    DownloadActionSave = new QAction( "Get file" );
+
+    DownloadMenu->setStyleSheet( MenuStyle );
+    DownloadMenu->addAction( DownloadActionSave );
+
+    connect( ScreenshotTable, &QTableWidget::customContextMenuRequested, this, &LootWidget::onScreenshotTableCtx );
+    connect( ScreenshotActionDownload, &QAction::triggered, this, &LootWidget::onScreenshotSave );
+    connect( DownloadTable, &QTableWidget::customContextMenuRequested, this, &LootWidget::onDownloadTableCtx );
+    connect( DownloadActionSave, &QAction::triggered, this, &LootWidget::onDownloadSave );
     connect( ScreenshotTable, &QTableWidget::clicked, this, &LootWidget::onScreenshotTableClick );
     connect( DownloadTable, &QTableWidget::clicked, this, &LootWidget::onDownloadTableClick );
     connect( splitter, &QSplitter::splitterMoved, ScreenshotImage, &ImageLabel::resizeImage );
@@ -439,4 +455,117 @@ void LootWidget::onScreenshotTableCtx( const QPoint &pos )
         return;
 
     ScreenshotMenu->popup( ScreenshotTable->horizontalHeader()->viewport()->mapToGlobal( pos ) );
+}
+
+void LootWidget::onDownloadTableCtx( const QPoint &pos )
+{
+    if ( ! DownloadTable->itemAt( pos ) )
+        return;
+
+    DownloadMenu->popup( DownloadTable->horizontalHeader()->viewport()->mapToGlobal( pos ) );
+}
+
+void LootWidget::onDownloadSave()
+{
+    auto Row = DownloadTable->currentRow();
+    if ( Row < 0 || ! DownloadTable->item( Row, 0 ) )
+        return;
+
+    auto AgentID  = ComboAgentID->currentText();
+    auto FileName = DownloadTable->item( Row, 0 )->text();
+
+    if ( AgentID.compare( "[ All ]" ) == 0 )
+    {
+        for ( auto& item : LootItems )
+        {
+            if ( item.Type == LOOT_FILE && item.Data.Name.compare( FileName ) == 0 )
+            {
+                AgentID = item.AgentID;
+                break;
+            }
+        }
+    }
+
+    auto SavePath = QFileDialog::getSaveFileName( this, "Save looted file", FileName );
+    if ( SavePath.isEmpty() )
+        return;
+
+    // the file content lives on the teamserver — request it and remember
+    // where the user wants it written once it arrives.
+    PendingSave[ AgentID + "/" + FileName ] = SavePath;
+
+    auto Package = new Util::Packager::Package;
+    Package->Head.Event    = Util::Packager::Loot::Type;
+    Package->Head.User     = HavocX::Teamserver.User.toStdString();
+    Package->Head.Time     = CurrentTime().toStdString();
+    Package->Body.SubEvent = Util::Packager::Loot::GetFile;
+    Package->Body.Info     = {
+        { "AgentID",  AgentID.toStdString()  },
+        { "FileName", FileName.toStdString() },
+    };
+
+    HavocX::Connector->SendPackage( Package );
+}
+
+void LootWidget::onScreenshotSave()
+{
+    auto Row = ScreenshotTable->currentRow();
+    if ( Row < 0 || ! ScreenshotTable->item( Row, 0 ) )
+        return;
+
+    auto AgentID  = ComboAgentID->currentText();
+    auto FileName = ScreenshotTable->item( Row, 0 )->text();
+
+    for ( auto& item : LootItems )
+    {
+        if ( item.Type != LOOT_IMAGE || item.Data.Name.compare( FileName ) != 0 )
+            continue;
+
+        if ( AgentID.compare( "[ All ]" ) != 0 && item.AgentID.compare( AgentID ) != 0 )
+            continue;
+
+        auto SavePath = QFileDialog::getSaveFileName( this, "Save screenshot", FileName, "BMP image (*.bmp)" );
+        if ( SavePath.isEmpty() )
+            return;
+
+        auto File = QFile( SavePath );
+        if ( ! File.open( QIODevice::WriteOnly ) )
+        {
+            QMessageBox::warning( this, "Loot", "Failed to open file for writing: " + SavePath );
+            return;
+        }
+
+        File.write( item.Data.Data );
+        File.close();
+        return;
+    }
+}
+
+void LootWidget::SaveLootFile( const QString& AgentID, const QString& FileName, const QByteArray& Data )
+{
+    auto Key      = AgentID + "/" + FileName;
+    auto SavePath = PendingSave.take( Key );
+
+    if ( SavePath.isEmpty() )
+        SavePath = QFileDialog::getSaveFileName( this, "Save looted file", FileName );
+
+    if ( SavePath.isEmpty() )
+        return;
+
+    auto File = QFile( SavePath );
+    if ( ! File.open( QIODevice::WriteOnly ) )
+    {
+        QMessageBox::warning( this, "Loot", "Failed to open file for writing: " + SavePath );
+        return;
+    }
+
+    File.write( Data );
+    File.close();
+
+    spdlog::info( "Saved looted file {} to {}", FileName.toStdString(), SavePath.toStdString() );
+}
+
+void LootWidget::LootError( const QString& Error )
+{
+    QMessageBox::warning( this, "Loot", Error );
 }

@@ -115,6 +115,13 @@ type (
 			Log     int
 			Profile int
 		}
+
+		Loot struct {
+			Type     int
+			GetFile  int
+			SendFile int
+			Error    int
+		}
 	}
 )
 
@@ -255,4 +262,11 @@ var Type = Types{
 		Log     int
 		Profile int
 	}{Type: 0x10, Log: 0x1, Profile: 0x2},
+
+	Loot: struct {
+		Type     int
+		GetFile  int
+		SendFile int
+		Error    int
+	}{Type: 0x11, GetFile: 0x1, SendFile: 0x2, Error: 0x3},
 }
