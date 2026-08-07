@@ -26,13 +26,13 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
         if ( MessageType == "Error" || MessageType == "Erro" )
             this->DemonCommandInstance->DemonConsole->TaskError( Message );
         else if ( MessageType == "Good" )
-            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Green( "[+]" ) + " " + Message );
+            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Green( "[+]" ) + " " + Message.toHtmlEscaped() );
         else if ( MessageType == "Info" )
-            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Message );
+            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Message.toHtmlEscaped() );
         else if ( MessageType == "Warning" || MessageType == "Warn" )
-            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Yellow( "[!]" ) + " " + Message );
+            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Yellow( "[!]" ) + " " + Message.toHtmlEscaped() );
         else
-            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Purple( "[^]" ) + " " + Message );
+            this->DemonCommandInstance->DemonConsole->AppendRaw( Util::ColorText::Purple( "[^]" ) + " " + Message.toHtmlEscaped() );
     }
 
     if ( ! Output.isEmpty() )
@@ -45,7 +45,7 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
             Py_XDECREF( HavocX::callbackMessage );
             HavocX::callbackMessage = NULL;
         }
-        this->DemonCommandInstance->DemonConsole->AppendRaw( Output );
+        this->DemonCommandInstance->DemonConsole->AppendRaw( Output.toHtmlEscaped() );
     }
 
     if ( JsonDocument[ "MiscType" ].toString().compare( "" ) != 0 )

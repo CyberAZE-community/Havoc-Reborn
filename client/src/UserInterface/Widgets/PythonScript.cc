@@ -54,8 +54,9 @@ void HavocNamespace::UserInterface::Widgets::PythonScriptInterpreter::RunCode( Q
     if ( PyRun_SimpleStringFlags( code.toStdString().c_str(), NULL ) == -1 )
     {
         spdlog::error( "Failed to run script" );
-        return;
     }
+
+    emb::reset_stdout();
 
     if ( buffer.size() > 0 )
         this->PythonScriptOutput->appendPlainText( buffer.c_str() );

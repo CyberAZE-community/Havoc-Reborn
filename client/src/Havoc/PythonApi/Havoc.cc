@@ -111,10 +111,10 @@ PyObject* PythonAPI::Havoc::Core::GetAgents( PyObject *self, PyObject *args )
 
     AgentsID = Py_BuildValue( "s", "Demon" );
     PyList_SetItem( AgentsObjects, 0, AgentsID );
-    for ( int i = 1; i < NumberOfSessions; ++i )
+    for ( int i = 0; i < NumberOfSessions; ++i )
     {
         AgentsID = Py_BuildValue( "s", Agents[ i ].Name.toStdString().c_str() );
-        PyList_SetItem( AgentsObjects, i, AgentsID );
+        PyList_SetItem( AgentsObjects, i + 1, AgentsID );
     }
 
     return AgentsObjects;
@@ -245,7 +245,7 @@ PyObject* PythonAPI::Havoc::Core::RegisterCommand( PyObject *self, PyObject *arg
         CompleteText = QString( RCommand.Command.c_str() );
 
     // TODO: further test this. Reload or load new scripts that make use of RegisterCommand
-    auto Sessions = HavocX::Teamserver.Sessions;
+    auto& Sessions = HavocX::Teamserver.Sessions;
     for ( u32 i = 0; i < Sessions.size(); i++ )
     {
         Sessions[ i ].InteractedWidget->AutoCompleteAdd( CompleteText );
@@ -301,7 +301,7 @@ PyObject* PythonAPI::Havoc::Core::RegisterModule( PyObject *self, PyObject *args
     CompleteText = QString( Module.Name.c_str() );
 
     // TODO: further test this. Reload or load new scripts that make use of RegisterCommand
-    auto Sessions = HavocX::Teamserver.Sessions;
+    auto& Sessions = HavocX::Teamserver.Sessions;
     for ( u32 i = 0; i < Sessions.size(); i++ )
     {
         Sessions[ i ].InteractedWidget->AutoCompleteAdd( CompleteText );

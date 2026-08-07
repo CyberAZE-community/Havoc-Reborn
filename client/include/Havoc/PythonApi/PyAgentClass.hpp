@@ -6,8 +6,8 @@
 #define AllocMov( des, src, size )                          \
     if ( size > 0 )                                         \
     {                                                       \
-        des = ( char* ) malloc( size * sizeof( char ) );    \
-        memset( des, 0, size );                             \
+        des = ( char* ) malloc( ( size + 1 ) * sizeof( char ) ); \
+        memset( des, 0, size + 1 );                         \
         std::strcpy( des, src );                            \
     }
 

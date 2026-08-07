@@ -27,6 +27,8 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
             Packager->DispatchPackage( Package );
 
+            delete Package;
+
             return;
         }
 
