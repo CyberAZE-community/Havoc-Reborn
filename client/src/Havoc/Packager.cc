@@ -25,6 +25,8 @@ const int Util::Packager::InitConnection::Type      = 0x1;
 const int Util::Packager::InitConnection::Success   = 0x1;
 const int Util::Packager::InitConnection::Error     = 0x2;
 const int Util::Packager::InitConnection::Login     = 0x3;
+const int Util::Packager::InitConnection::InitInfo  = 0x4;
+const int Util::Packager::InitConnection::Profile   = 0x5;
 
 const int Util::Packager::Listener::Type            = 0x2;
 const int Util::Packager::Listener::Add             = 0x1;
@@ -211,7 +213,7 @@ bool Packager::DispatchInitConnection( Util::Packager::PPackage Package )
             return true;
         }
 
-        case 0x5:
+        case Util::Packager::InitConnection::Profile:
         {
             auto TeamserverIPs = QString( Package->Body.Info[ "TeamserverIPs" ].c_str() );
             for ( auto& Ip : TeamserverIPs.split( ", " ) ) {

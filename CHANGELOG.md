@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `teamserver/Install.sh` no longer downloads the musl.cc cross toolchains (the URLs are dead); it installs the distro `mingw-w64` packages instead and skips `sudo` when running as root. `profiles/havoc.yaotl` now points `Teamserver.Build` at the system compilers (`/usr/bin/x86_64-w64-mingw32-gcc`, `/usr/bin/i686-w64-mingw32-gcc`), so fresh setups no longer fail with "Compiler x64 path doesn't exist".
 - Client: `Connector` inherited from `QTcpSocket` even though it only ever uses an internal `QWebSocket`; the dead socket base is replaced with `QObject`, and `ErrorString` is now value-initialized (`QString()`) instead of being assigned `nullptr`. (#98)
 - Client: the teamserver logger's `QDialog` was created unparented and leaked for every teamserver tab; it is now parented to the tab session widget. `DispatchListener::Remove` also dereferenced `ListenerTableWidget` without a null check and now guards it. (#95)
+- Client: named the `InitConnection` sub-event constants `InitInfo` (0x4) and `Profile` (0x5) to match the teamserver protocol, replacing the magic `case 0x5` literal in `DispatchInitConnection`; no values were renumbered and the teamserver side is unchanged. (#102)
 
 ### Changed
 

@@ -37,6 +37,8 @@ namespace HavocNamespace::Util::Packager
         extern const int Success;
         extern const int Error;
         extern const int Login;
+        extern const int InitInfo;
+        extern const int Profile;
     }
 
     namespace Listener
