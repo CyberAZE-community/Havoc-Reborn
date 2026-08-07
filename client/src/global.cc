@@ -4,6 +4,7 @@
 #include <Havoc/Connector.hpp>
 
 #include <QFileDialog>
+#include <QRandomGenerator>
 
 using namespace std;
 using namespace HavocNamespace;
@@ -31,12 +32,14 @@ QString HavocSpace::Listener::PayloadExternal = "External";
 std::string Util::gen_random( const int len )
 {
     auto str = std::string( "0123456789ABCDEF" );
-    auto rd  = std::random_device();
-    auto gen = std::mt19937( rd() );
+    auto out = std::string();
 
-    std::shuffle( str.begin(), str.end(), gen );
+    out.reserve( len );
 
-    return str.substr( 0, len );
+    for ( auto i = 0; i < len; i++ )
+        out += str[ QRandomGenerator::global()->bounded( (int) str.size() ) ];
+
+    return out;
 }
 
 void Util::SessionItem::Export()

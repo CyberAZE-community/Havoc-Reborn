@@ -989,11 +989,13 @@ bool Packager::DispatchTeamserver( Util::Packager::PPackage Package )
             }
 
             HavocX::Teamserver.TabSession->Teamserver->AddLoggerText( Text );
+
+            break;
         }
 
         case Util::Packager::Teamserver::Profile:
         {
-
+            break;
         }
     }
     return true;

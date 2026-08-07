@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: `Connector` inherited from `QTcpSocket` even though it only ever uses an internal `QWebSocket`; the dead socket base is replaced with `QObject`, and `ErrorString` is now value-initialized (`QString()`) instead of being assigned `nullptr`. (#98)
 - Client: the teamserver logger's `QDialog` was created unparented and leaked for every teamserver tab; it is now parented to the tab session widget. `DispatchListener::Remove` also dereferenced `ListenerTableWidget` without a null check and now guards it. (#95)
 - Client: named the `InitConnection` sub-event constants `InitInfo` (0x4) and `Profile` (0x5) to match the teamserver protocol, replacing the magic `case 0x5` literal in `DispatchInitConnection`; no values were renumbered and the teamserver side is unchanged. (#102)
+- Client: `DispatchTeamserver`'s `Logger` case fell through into the `Profile` case for lack of a `break`, and `Util::gen_random` generated TaskIDs by shuffling a 16-character alphabet (no repeated characters, silently truncated above 16 chars); the `break` was added and TaskIDs are now drawn per-character from `QRandomGenerator`. (#63)
 
 ### Changed
 
