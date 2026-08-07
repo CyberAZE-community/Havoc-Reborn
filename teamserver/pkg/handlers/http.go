@@ -103,7 +103,15 @@ func (h *HTTP) request(ctx *gin.Context) {
 	if h.Config.BehindRedir {
 		ExternalIP = ctx.Request.Header.Get("X-Forwarded-For")
 	} else {
-		ExternalIP = strings.Split(ctx.Request.RemoteAddr, ":")[0]
+		ExternalIP = ctx.Request.RemoteAddr
+		if host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr); err == nil {
+			ExternalIP = host
+		}
+
+		/* strip any IPv6 zone suffix (e.g. "%eth0") */
+		if i := strings.LastIndex(ExternalIP, "%"); i > -1 {
+			ExternalIP = ExternalIP[:i]
+		}
 	}
 
 	/*
