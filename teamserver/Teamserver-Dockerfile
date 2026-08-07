@@ -2,18 +2,17 @@
 # ------------------------------------------------------------------------------
 # Commands for usage:
 #
-#	Build image file:
-#		'docker build -t havoc-teamserver -f Teamserver-Dockerfile .'
+#	Build image file (from the repository root, so local source is the context):
+#		'docker build -t havoc-teamserver -f teamserver/Teamserver-Dockerfile .'
 #	(Optional) Create Data volume for persistence:
 #		`docker volume create <volume_name>`
 #	Run Built Image file(`-d` for persistence):
 #		'docker run -ti -d -v havoc-teamserver-data:/data havoc-teamserver'
 #	Copy built Teamserver from container:
-#		'docker cp <containerID>:/go/Build/bin/teamserver /host/path/target'
+#		'docker cp <containerID>:/Havoc/havoc /host/path/target'
 #
 #	Run Built Teamserver from Docker container:
 #		`docker run -p40056:40056 -p 443:443 -it -d -v havoc-c2-data:/data havoc-teamserver`
-#		`docker exec -t <container_id> "/go/Build/bin/teamserver"`
 #
 # Extras
 # 	Create Data storage for persistence
@@ -21,7 +20,8 @@
 # 	Enter Container:
 #		'docker run exec -it <containerID> bash'
 # ------------------------------------------------------------------------------
-ARG GO_VERSION="1.19.1"
+# Go 1.21+ required per teamserver/go.mod
+ARG GO_VERSION="1.21"
 FROM golang:${GO_VERSION}
 #
 ENV PATH=/root/.local/bin:$PATH
@@ -32,7 +32,6 @@ RUN apt update \
 	alien \
 	debhelper \
 	devscripts \
-	golang-go \
 	nasm \
 	mingw-w64 \
 	dh-golang \
@@ -45,17 +44,16 @@ RUN apt update \
 	sudo \
 	libcap2-bin \
 	upx-ucl \
-	&& pip install --upgrade jsonschema
+	&& pip install --upgrade jsonschema --break-system-packages || pip install --upgrade jsonschema
 #
-# Copy over the client
-#COPY . Build/
-#RUN cd Build/ && make
+# Build this fork's local source instead of cloning abandoned upstream
+COPY . /Havoc
 #
-# Pull the repo from Github
-RUN git clone https://github.com/HavocFramework/Havoc
-#
-# Build the cloned repos copy of the Teamserver-Client
-RUN cd Havoc/teamserver/ && chmod +x ./Install.sh && ./Install.sh && cd .. && make ts-build
+WORKDIR /Havoc
+# Run Install.sh directly (no sudo password prompt in container) instead of the
+# makefile ts-build target, which needs sudo for setcap
+RUN cd teamserver/ && chmod +x ./Install.sh && ./Install.sh \
+	&& cd .. && make dev-ts-compile
 #
 # ------------------------------------------------------------------------------#
 # original @author      Nicola Asuni <info@tecnick.com>

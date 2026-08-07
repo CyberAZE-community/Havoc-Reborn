@@ -11,7 +11,8 @@ ts-build:
 	@ echo "[*] building teamserver"
 	@ ./teamserver/Install.sh
 	@ cd teamserver; GO111MODULE="on" go build -ldflags="-s -w -X cmd.VersionCommit=$(git rev-parse HEAD)" -o ../havoc main.go
-	@ sudo setcap 'cap_net_bind_service=+ep' havoc # this allows you to run the server as a regular user
+	@ # optional: run with SETCAP=1 (e.g. `make ts-build SETCAP=1`) to allow running the server as a regular user on privileged ports
+	@ if [ "$(SETCAP)" = "1" ]; then sudo setcap 'cap_net_bind_service=+ep' havoc; fi
 
 dev-ts-compile:
 	@ echo "[*] compile teamserver"
@@ -32,7 +33,7 @@ client-build:
 	@ echo "[*] building client"
 	@ git submodule update --init --recursive
 	@ mkdir -p client/Build; cd client/Build; cmake ..
-	@ if [ -d "client/Modules" ]; then echo "Modules installed"; else git clone --recurse-submodules https://github.com/HavocFramework/Modules client/Modules --single-branch --branch `git rev-parse --abbrev-ref HEAD`; fi
+	@ if [ -d "client/Modules" ]; then echo "Modules installed"; else git clone --recurse-submodules https://github.com/HavocFramework/Modules client/Modules --single-branch --branch dev; fi # pinned to dev: active development happens on dev, not on the local branch name
 	@ cmake --build client/Build -- -j 4
 
 client-build-mac:
