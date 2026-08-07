@@ -181,7 +181,7 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 
 								/* get an instance of the pivot */
 								PivotInstance = Teamserver.AgentInstance(PivotAgentID)
-								if PivotInstance != nil {
+								if PivotInstance == nil {
 									break
 								}
 

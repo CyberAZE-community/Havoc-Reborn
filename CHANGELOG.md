@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - `teamserver/Install.sh` no longer downloads the musl.cc cross toolchains (the URLs are dead); it installs the distro `mingw-w64` packages instead and skips `sudo` when running as root. `profiles/havoc.yaotl` now points `Teamserver.Build` at the system compilers (`/usr/bin/x86_64-w64-mingw32-gcc`, `/usr/bin/i686-w64-mingw32-gcc`), so fresh setups no longer fail with "Compiler x64 path doesn't exist".
 
 ### Changed
