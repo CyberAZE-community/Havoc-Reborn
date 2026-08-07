@@ -34,16 +34,6 @@ func NewLogr(Server, Path string) *Logr {
 			logger.Error("Failed to create Logr folder: " + err.Error())
 			return nil
 		}
-	} else {
-		err = os.RemoveAll(Path)
-		if err == nil {
-			if err = os.MkdirAll(Path, os.ModePerm); err != nil {
-				logger.Error("Failed to create Logr folder: " + err.Error())
-				return nil
-			}
-		} else {
-			logger.Error(err.Error())
-		}
 	}
 
 	if _, err = os.Stat(logr.AgentPath); os.IsNotExist(err) {
