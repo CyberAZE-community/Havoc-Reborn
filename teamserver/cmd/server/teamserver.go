@@ -52,7 +52,7 @@ func (t *Teamserver) SetServerFlags(flags TeamserverFlags) {
 func (t *Teamserver) Start() {
 	logger.Debug("Starting teamserver...")
 	var (
-		ServerFinished      chan bool
+		ServerFinished      = make(chan bool)
 		TeamserverWs        string
 		TeamserverPath, err = os.Getwd()
 		ListenerCount       int
