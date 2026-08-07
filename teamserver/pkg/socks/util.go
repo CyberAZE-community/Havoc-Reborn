@@ -89,7 +89,7 @@ func SubNegotiationClient(conn net.Conn) (NegotiationHeader, error) {
 
 	/* check if it's a socks5 header */
 	if header.Version != 0x5 {
-		return header, errors.New(fmt.Sprint("socks version (%d) is not 5 (0x5)", header.Version))
+		return header, fmt.Errorf("socks version (%d) is not 5 (0x5)", header.Version)
 	}
 
 	header.NMethods, err = reader.ReadByte()
@@ -151,7 +151,7 @@ func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
 
 	/* check if it's a socks5 header */
 	if header.Version != 0x5 {
-		return header, errors.New(fmt.Sprint("socks version (%d) is not 5 (0x5)", header.Version))
+		return header, fmt.Errorf("socks version (%d) is not 5 (0x5)", header.Version)
 	}
 
 	header.Command, err = reader.ReadByte()
@@ -165,7 +165,7 @@ func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
 	}
 
 	if header.RSV != 0x0 {
-		return header, errors.New(fmt.Sprint("socks RSV (%d) is not 0 (0x0)", header.RSV))
+		return header, fmt.Errorf("socks RSV (%d) is not 0 (0x0)", header.RSV)
 	}
 
 	header.ATYP, err = reader.ReadByte()
@@ -209,7 +209,7 @@ func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
 			return header, errors.New("failed to read the IPv6 address")
 		}
 	} else {
-		return header, errors.New(fmt.Sprint("socks ATYP (%d) is not valid", header.ATYP))
+		return header, fmt.Errorf("socks ATYP (%d) is not valid", header.ATYP)
 	}
 
 	PortArr := make([]byte, 2)

@@ -306,7 +306,7 @@ func HTTPSGenerateRSACertificate(host string) ([]byte, []byte, error) {
     // Generate private key
     privateKey, err = rsa.GenerateKey(rand.Reader, RSAKeySize)
     if err != nil {
-        logger.Debug("Failed to generate private key %s", err)
+        logger.Debug(fmt.Sprintf("Failed to generate private key %s", err))
         return nil, nil, err
     }
     subject := randomSubject(host)
