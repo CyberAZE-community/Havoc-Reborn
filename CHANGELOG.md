@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - Teamserver: `agent.ParseHeader` rejected buffers holding exactly one more 4-byte field (`Parser.Length() > 4`), truncating minimally-sized headers; the bounds checks are now `>= 4`. (#93)
+- Teamserver: a matching `HostHeader` (or `X-Forwarded-Host`) re-validated requests that had already failed a required profile header check; a host match can no longer override a header mismatch. (#107)
 - Teamserver (Service API): closing a service client removed only its first registered agent and listener, leaking the rest; all agents and listeners owned by the client are now unregistered. (#109)
 - Teamserver: restoring listeners from the database used unchecked type assertions on the stored JSON config, so one corrupted row crashed the teamserver at startup; malformed entries are now logged and skipped. (#108)
 - Teamserver: `ServerFinished` was declared but never initialized, so a failed TLS startup deadlocked on the nil channel instead of shutting down; it is now created with `make(chan bool)`. (#104)

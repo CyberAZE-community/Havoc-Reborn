@@ -148,11 +148,8 @@ func (h *HTTP) request(ctx *gin.Context) {
 			RequestHost = host
 		}
 
-		if strings.ToLower(RequestHost) == strings.ToLower(h.Config.HostHeader) {
-			valid = true
-		} else if strings.ToLower(ctx.Request.Header.Get("X-Forwarded-Host")) == strings.ToLower(h.Config.HostHeader) {
-			valid = true
-		} else {
+		if strings.ToLower(RequestHost) != strings.ToLower(h.Config.HostHeader) &&
+			strings.ToLower(ctx.Request.Header.Get("X-Forwarded-Host")) != strings.ToLower(h.Config.HostHeader) {
 			MissingHdr = "Host: " + ctx.Request.Host + "; X-Forwarded-Host: " + ctx.Request.Header.Get("X-Forwarded-Host")
 			valid = false
 		}
