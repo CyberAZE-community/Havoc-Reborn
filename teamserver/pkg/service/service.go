@@ -726,27 +726,25 @@ func (s *Service) ClientClose(client *ClientService) {
 		if s.clients[i] == client {
 
 			// remove registered agents
-			for j := range s.Agents {
+			for j := len(s.Agents) - 1; j >= 0; j-- {
 				if s.Agents[j] != nil {
 					if s.Agents[j].client == client {
 						logger.Warn(fmt.Sprintf("%v unregistered agent %v", "["+colors.BoldWhite("SERVICE")+"]", "[Name: "+colors.Blue(s.Agents[j].Name)+"]"))
 
 						// remove from list
 						s.Agents = append(s.Agents[:j], s.Agents[j+1:]...)
-						break
 					}
 				}
 			}
 
 			// remove registered listeners
-			for j := range s.Listeners {
+			for j := len(s.Listeners) - 1; j >= 0; j-- {
 				if s.Listeners[j] != nil {
 					if s.Listeners[j].client == client {
 						logger.Warn(fmt.Sprintf("%v unregistered a new listener %v %v", "["+colors.BoldWhite("SERVICE")+"]", "[Name: "+colors.Blue(s.Listeners[j].Name)+"]", "[Agent: "+colors.Blue(s.Listeners[j].Agent)+"]"))
 
 						// remove from list
 						s.Listeners = append(s.Listeners[:j], s.Listeners[j+1:]...)
-						break
 					}
 				}
 			}
