@@ -3,8 +3,24 @@ name: CI
 on:
   push:
     branches: [dev, main]
+    paths-ignore:
+      - '**.md'
+      - '**.MD'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'assets/**'
+      - 'profiles/**'
+      - 'data/**'
   pull_request:
     branches: [dev, main]
+    paths-ignore:
+      - '**.md'
+      - '**.MD'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'assets/**'
+      - 'profiles/**'
+      - 'data/**'
 
 jobs:
   teamserver:

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- CI now skips runs when only non-code files change (`paths-ignore` for markdown, `LICENSE`, `.gitignore`, `assets/`, `profiles/`, `data/`).
+
 ### Removed
 
 - `RELEASE.md` (upstream historical changelog superseded by `CHANGELOG.md`) and `exception_mac.hpp` (a stray toml11 `exception.hpp` patch left at the repo root by an upstream merge; unreferenced by any build).
