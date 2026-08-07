@@ -1,22 +1,15 @@
 #!/bin/bash
 
-if [ ! -d "data/x86_64-w64-mingw32-cross" ]; then
-	sudo apt -qq --yes install golang-go nasm mingw-w64 wget >/dev/null 2>&1
+# install teamserver build dependencies.
+# the musl.cc cross toolchains this script used to download are no longer
+# available; the system mingw-w64 packages are used instead (make sure the
+# Teamserver.Build compiler paths in your profile point to them, e.g.
+# /usr/bin/x86_64-w64-mingw32-gcc — the shipped profiles already do).
 
-	if [ ! -d "data" ]; then
-		mkdir data
-	fi
-
-	if [ ! -f /tmp/mingw-musl-64.tgz ]; then
-		wget https://musl.cc/x86_64-w64-mingw32-cross.tgz -q -O /tmp/mingw-musl-64.tgz
-	fi
-
-
-	tar zxf /tmp/mingw-musl-64.tgz -C data
-
-	if [ ! -f /tmp/mingw-musl-32.tgz ]; then
-		wget https://musl.cc/i686-w64-mingw32-cross.tgz -q -O /tmp/mingw-musl-32.tgz
-	fi
-
-	tar zxf /tmp/mingw-musl-32.tgz -C data
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+	SUDO="sudo"
 fi
+
+$SUDO apt -qq update
+$SUDO apt -qq --yes install golang-go nasm mingw-w64 wget
