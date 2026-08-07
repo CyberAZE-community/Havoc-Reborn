@@ -5,13 +5,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QWebSocket>
-#include <QAbstractSocket>
+#include <QObject>
 
 #include <Havoc/Packager.hpp>
 
 namespace HavocNamespace
 {
-    class Connector : public QTcpSocket
+    class Connector : public QObject
     {
     private:
         QWebSocket*           Socket     = nullptr;
@@ -19,7 +19,7 @@ namespace HavocNamespace
         HavocSpace::Packager* Packager   = nullptr;
 
     public:
-        QString ErrorString = nullptr;
+        QString ErrorString = QString();
 
         Connector( Util::ConnectionInfo* );
         ~Connector() noexcept;

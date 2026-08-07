@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Teamserver: the database was opened twice at startup (`NewTeamserver` and again in `Start`), leaking the first handle; `Start` now reuses the already-open database. (#105)
 - Teamserver: `db.AgentExist` deferred `query.Close()` before the error check (nil `*sql.Rows` dereference on query failure), never closed its prepared statement, and only treated exactly-one-row as existing; defers now follow their error checks, the statement is closed, and any positive count means the agent exists. (#106)
 - `teamserver/Install.sh` no longer downloads the musl.cc cross toolchains (the URLs are dead); it installs the distro `mingw-w64` packages instead and skips `sudo` when running as root. `profiles/havoc.yaotl` now points `Teamserver.Build` at the system compilers (`/usr/bin/x86_64-w64-mingw32-gcc`, `/usr/bin/i686-w64-mingw32-gcc`), so fresh setups no longer fail with "Compiler x64 path doesn't exist".
+- Client: `Connector` inherited from `QTcpSocket` even though it only ever uses an internal `QWebSocket`; the dead socket base is replaced with `QObject`, and `ErrorString` is now value-initialized (`QString()`) instead of being assigned `nullptr`. (#98)
 
 ### Changed
 
