@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - Teamserver: `agent.ParseHeader` rejected buffers holding exactly one more 4-byte field (`Parser.Length() > 4`), truncating minimally-sized headers; the bounds checks are now `>= 4`. (#93)
+- Teamserver: removed the leftover unauthenticated static file handler that served `./bin/static` at `/home` (plus the `/` → `home/` redirect pointing at it); nothing in the fork ships or references that directory. (#63)
 - Teamserver: `logr.NewLogr` deleted the entire existing log directory tree (`os.RemoveAll`) whenever the path already existed; it now only creates the directory if missing and never removes prior logs. (#91)
 - Teamserver: fixed all `go vet` findings in first-party code — self-assignments in `demons.go`, `fmt.Sprintf` calls with missing args, `fmt.Sprint` misused with `%d` format verbs in `pkg/socks`, and a literal `%s` passed to `logger.Debug` in `pkg/certs`. (#56)
 - Teamserver: `getWindowsVersionString` indexed up to `OsVersion[4]` without a length check, panicking on third-party agents that report a short OS version array; it now returns "Unknown" for arrays shorter than 5 elements. (#64)

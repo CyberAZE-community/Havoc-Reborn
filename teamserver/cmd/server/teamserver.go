@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -75,10 +74,6 @@ func (t *Teamserver) Start() {
 	gin.SetMode(gin.ReleaseMode)
 	t.Server.Engine = gin.New()
 
-	t.Server.Engine.GET("/", func(context *gin.Context) {
-		context.Redirect(http.StatusMovedPermanently, "home/")
-	})
-
 	// Catch me if you can
 	t.Server.Engine.GET("/havoc/", func(context *gin.Context) {
 
@@ -106,9 +101,6 @@ func (t *Teamserver) Start() {
 		// Handle connections in a new goroutine.
 		go t.handleRequest(ClientID)
 	})
-
-	// TODO: pass this as a profile/command line flag
-	t.Server.Engine.Static("/home", "./bin/static")
 
 	t.Server.Engine.POST("/:endpoint", func(context *gin.Context) {
 		var endpoint = context.Request.RequestURI[1:]
