@@ -59,13 +59,13 @@ func (h *HTTP) generateCertFiles() bool {
 
 	h.TLS.Cert, h.TLS.Key, err = certs.HTTPSGenerateRSACertificate(common.GetInterfaceIpv4Addr(h.Config.HostBind))
 
-	err = os.WriteFile(h.TLS.CertPath, h.TLS.Cert, 0644)
+	err = os.WriteFile(h.TLS.CertPath, h.TLS.Cert, 0600)
 	if err != nil {
 		logger.Error("Couldn't save server cert file: " + err.Error())
 		return false
 	}
 
-	err = os.WriteFile(h.TLS.KeyPath, h.TLS.Key, 0644)
+	err = os.WriteFile(h.TLS.KeyPath, h.TLS.Key, 0600)
 	if err != nil {
 		logger.Error("Couldn't save server key file: " + err.Error())
 		return false
@@ -86,7 +86,6 @@ func (h *HTTP) fake404(ctx *gin.Context) {
 	}
 	ctx.Header("Server", "nginx")
 	ctx.Header("Content-Type", "text/html")
-	ctx.Header("X-Havoc", "true")
 	ctx.Writer.Write(html)
 }
 
@@ -94,6 +93,7 @@ func (h *HTTP) request(ctx *gin.Context) {
 	var ExternalIP string
 	var MissingHdr string
 
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 16<<20)
 	Body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
 		logger.Debug("Error while reading request: " + err.Error())

@@ -91,7 +91,7 @@ func (p *Parser) ParseInt32() int {
 			copy(integer, p.buffer[:p.Length()])
 			p.buffer = []byte{}
 		} else {
-			copy(integer, p.buffer[:p.Length()-4])
+			copy(integer, p.buffer[:4])
 			p.buffer = p.buffer[4:]
 		}
 	}
@@ -115,7 +115,7 @@ func (p *Parser) ParseInt64() int64 {
 			copy(integer, p.buffer[:p.Length()])
 			p.buffer = []byte{}
 		} else {
-			copy(integer, p.buffer[:p.Length()-8])
+			copy(integer, p.buffer[:8])
 			p.buffer = p.buffer[8:]
 		}
 	}
@@ -139,7 +139,7 @@ func (p *Parser) ParseBool() bool {
 			copy(integer, p.buffer[:p.Length()])
 			p.buffer = []byte{}
 		} else {
-			copy(integer, p.buffer[:p.Length()-4])
+			copy(integer, p.buffer[:4])
 			p.buffer = p.buffer[4:]
 		}
 	}

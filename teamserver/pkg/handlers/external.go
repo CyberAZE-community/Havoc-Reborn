@@ -37,6 +37,7 @@ func (e *External) Start() {
 func (e *External) Request(ctx *gin.Context) {
     logger.Debug("ExternalC2 [" + e.Config.Name + "] client connected")
 
+    ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 16<<20)
     Body, err := io.ReadAll(ctx.Request.Body)
     if err != nil {
         logger.Debug("Error while reading request: " + err.Error())

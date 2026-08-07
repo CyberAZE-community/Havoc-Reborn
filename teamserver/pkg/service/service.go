@@ -48,6 +48,12 @@ func (s *Service) Start() {
 }
 
 func (s *Service) handleConnection(socket *websocket.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error(fmt.Sprintf("Recovered from panic while handling service client: %v", r))
+		}
+	}()
+
 	var client = new(ClientService)
 	client.Conn = socket
 

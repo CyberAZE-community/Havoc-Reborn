@@ -87,6 +87,10 @@ type Teamserver struct {
 
 	Agents    agent.Agents
 	Listeners []*Listener
+
+	// ListenersMutex guards Listeners add/remove/iterate
+	ListenersMutex sync.RWMutex
+
 	Endpoints []*Endpoint
 
 	Settings struct {

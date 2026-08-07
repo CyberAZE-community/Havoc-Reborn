@@ -138,13 +138,13 @@ func (t *Teamserver) Start() {
 			os.Exit(0)
 		}
 
-		err = os.WriteFile(certPath, Cert, 0644)
+		err = os.WriteFile(certPath, Cert, 0600)
 		if err != nil {
 			logger.Error("Couldn't save server cert file: " + err.Error())
 			os.Exit(0)
 		}
 
-		err = os.WriteFile(keyPath, Key, 0644)
+		err = os.WriteFile(keyPath, Key, 0600)
 		if err != nil {
 			logger.Error("Couldn't save server cert file: " + err.Error())
 			os.Exit(0)
@@ -350,12 +350,14 @@ func (t *Teamserver) Start() {
 		if DbName := t.DB.ListenerNames(); len(DbName) > 0 {
 			TotalCount = ListenerCount
 			for _, name := range DbName {
+				t.ListenersMutex.RLock()
 				for _, listener := range t.Listeners {
 					if listener.Name == name {
 						TotalCount--
 						break
 					}
 				}
+				t.ListenersMutex.RUnlock()
 			}
 		}
 
@@ -514,6 +516,12 @@ func (t *Teamserver) Start() {
 }
 
 func (t *Teamserver) handleRequest(id string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error(fmt.Sprintf("Recovered from panic while handling client (%v) request: %v", id, r))
+		}
+	}()
+
 	value, isok := t.Clients.Load(id)
 
 	if !isok {
@@ -558,7 +566,7 @@ func (t *Teamserver) handleRequest(id string) {
 
 	isExist := false
 	t.Clients.Range(func(key, value any) bool {
-		if client.Username == pk.Head.User {
+		if value.(*Client).Username == pk.Head.User {
 			err := t.SendEvent(id, events.UserAlreadyExits())
 			if err != nil {
 				logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
@@ -572,8 +580,15 @@ func (t *Teamserver) handleRequest(id string) {
 	if isExist {
 		return
 	}
+	User, ok := pk.Body.Info["User"].(string)
+	if !ok {
+		logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
+		t.RemoveClient(id)
+		return
+	}
+
 	if !t.ClientAuthenticate(pk) {
-		logger.Error("Client [User: " + pk.Body.Info["User"].(string) + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
+		logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
 		err := t.SendEvent(id, events.Authenticated(false))
 		if err != nil {
 			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
@@ -585,7 +600,7 @@ func (t *Teamserver) handleRequest(id string) {
 		return
 	} else {
 
-		logger.Good("User <" + colors.Blue(pk.Body.Info["User"].(string)) + "> " + colors.Green("Authenticated"))
+		logger.Good("User <" + colors.Blue(User) + "> " + colors.Green("Authenticated"))
 
 		client.Authenticated = true
 		client.ClientID = id
@@ -596,7 +611,7 @@ func (t *Teamserver) handleRequest(id string) {
 		}
 	}
 
-	client.Username = pk.Body.Info["User"].(string)
+	client.Username = User
 	packageNewUser := events.ChatLog.NewUserConnected(client.Username)
 	t.EventAppend(packageNewUser)
 	t.EventBroadcast(id, packageNewUser)
@@ -680,7 +695,7 @@ func (t *Teamserver) ClientAuthenticate(pk packager.Package) bool {
 
 					// check if the operator was even found
 					if UserFound {
-						if pk.Body.Info["Password"].(string) == UserPassword {
+						if Password, ok := pk.Body.Info["Password"].(string); ok && Password == UserPassword {
 							logger.Debug("User " + colors.Red(UserName) + " is authenticated")
 							return true
 						}
@@ -702,7 +717,11 @@ func (t *Teamserver) ClientAuthenticate(pk packager.Package) bool {
 		logger.Error("Not a Authenticate request")
 	}
 
-	logger.Error("Client failed to authenticate with password hash :: " + pk.Body.Info["Password"].(string))
+	if Password, ok := pk.Body.Info["Password"].(string); ok {
+		logger.Error("Client failed to authenticate with password hash :: " + Password)
+	} else {
+		logger.Error("Client failed to authenticate with a malformed password field")
+	}
 	return false
 }
 
@@ -772,15 +791,12 @@ func (t *Teamserver) SendEvent(id string, pk packager.Package) error {
 	if isOk {
 		client := value.(*Client)
 		client.Mutex.Lock()
+		defer client.Mutex.Unlock()
 
 		err = client.Connection.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 		if err != nil {
-			// TODO: comment this line out as it seems to crash the server
-			//t.Clients[id].Mutex.Unlock()
 			return err
 		}
-
-		client.Mutex.Unlock()
 
 	} else {
 		return errors.New(fmt.Sprintf("client (%v) doesn't exist anymore", colors.Red(id)))
@@ -822,7 +838,7 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 
 	if event.Head.OneTime != "true" {
 		t.EventsList = append(t.EventsList, event)
-		return append(t.EventsList, event)
+		return t.EventsList
 	}
 
 	return nil
@@ -831,7 +847,7 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 func (t *Teamserver) EventRemove(EventID int) []packager.Package {
 	t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
 
-	return append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
+	return t.EventsList
 }
 
 func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {

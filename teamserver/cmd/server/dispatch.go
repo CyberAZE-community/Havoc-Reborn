@@ -609,6 +609,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							}
 
 							// append the listener to the teamserver listener array
+							t.ListenersMutex.Lock()
 							t.Listeners = append(t.Listeners, &Listener{
 								Name: ListenerName,
 								Type: handlers.LISTENER_SERVICE,
@@ -617,6 +618,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									Info:    pk.Body.Info,
 								},
 							})
+							t.ListenersMutex.Unlock()
 
 							// break from this switch
 							return
@@ -973,11 +975,13 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 						return
 					}
 
+					t.ListenersMutex.RLock()
 					for i := 0; i < len(t.Listeners); i++ {
 						if t.Listeners[i].Name == ListenerName {
 							PayloadBuilder.SetListener(t.Listeners[i].Type, t.Listeners[i].Config)
 						}
 					}
+					t.ListenersMutex.RUnlock()
 
 					PayloadBuilder.SetExtension(Ext)
 

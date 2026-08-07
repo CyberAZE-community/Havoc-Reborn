@@ -23,6 +23,7 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 		ListenerName   string
 	)
 
+	t.ListenersMutex.RLock()
 	for _, listener := range t.Listeners {
 		var Name string
 
@@ -41,9 +42,11 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 		}
 
 		if Name == listener.Name {
+			t.ListenersMutex.RUnlock()
 			return errors.New("listener already exists")
 		}
 	}
+	t.ListenersMutex.RUnlock()
 
 	switch ListenerType {
 
@@ -101,16 +104,21 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 		break
 	}
 
+	t.ListenersMutex.Lock()
 	t.Listeners = append(t.Listeners, &Listener{
 		Name:   ListenerName,
 		Type:   ListenerType,
 		Config: ListenerConfig,
 	})
+	t.ListenersMutex.Unlock()
 
 	return nil
 }
 
 func (t *Teamserver) ListenerExist(Name string) bool {
+
+	t.ListenersMutex.RLock()
+	defer t.ListenersMutex.RUnlock()
 
 	for _, l := range t.Listeners {
 		if l.Name == Name {
@@ -122,6 +130,9 @@ func (t *Teamserver) ListenerExist(Name string) bool {
 }
 
 func (t *Teamserver) ListenerGetInfo(Name string) map[string]any {
+
+	t.ListenersMutex.RLock()
+	defer t.ListenersMutex.RUnlock()
 
 	for _, listener := range t.Listeners {
 		if listener.Name == Name {
@@ -142,6 +153,9 @@ func (t *Teamserver) ListenerGetInfo(Name string) map[string]any {
 }
 
 func (t *Teamserver) ListenerRemove(Name string) ([]*Listener, []packager.Package) {
+	t.ListenersMutex.Lock()
+	defer t.ListenersMutex.Unlock()
+
 	for i := range t.Listeners {
 		if t.Listeners[i].Name == Name {
 
@@ -194,6 +208,9 @@ func (t *Teamserver) ListenerEdit(Type int, Config any) {
 	switch Type {
 
 	case handlers.LISTENER_HTTP:
+
+		t.ListenersMutex.Lock()
+		defer t.ListenersMutex.Unlock()
 
 		for i := range t.Listeners {
 
@@ -364,11 +381,13 @@ func (t *Teamserver) ListenerServiceExc2Add(Name, ExEndpoint string, client *ser
 	})
 
 	// add this exc2 listener to the teamserver listener list
+	t.ListenersMutex.Lock()
 	t.Listeners = append(t.Listeners, &Listener{
 		Name:   Name,
 		Type:   handlers.LISTENER_EXTERNAL,
 		Config: ExtConfig,
 	})
+	t.ListenersMutex.Unlock()
 
 	return nil
 }
