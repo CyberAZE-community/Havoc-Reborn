@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- GitHub Actions CI (`.github/workflows/ci.yml`) on push/PR to `dev` and `main`: a teamserver job (`go build ./...` + `go vet ./...` on Go 1.21) and a client job (Qt5/websocket/python3-dev deps, submodule init, Release cmake build). (#111)
 - `SECURITY.md` with a vulnerability-reporting policy (GitHub Security Advisories; only the latest release is supported). (#101)
 
 ### Fixed
