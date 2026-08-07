@@ -169,6 +169,7 @@ typedef struct
         WIN_FUNC( RtlReAllocateHeap )
         WIN_FUNC( RtlFreeHeap )
         WIN_FUNC( RtlRandomEx )
+        WIN_FUNC( RtlGenRandom )
         WIN_FUNC( RtlNtStatusToDosError )
         WIN_FUNC( RtlGetVersion )
         WIN_FUNC( RtlExitUserThread )

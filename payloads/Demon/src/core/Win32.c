@@ -1306,6 +1306,14 @@ ULONG RandomNumber32(
 ) {
     ULONG Seed = 0;
 
+    /* use the system CSPRNG (RtlGenRandom) if available */
+    if ( Instance->Win32.RtlGenRandom &&
+         Instance->Win32.RtlGenRandom( &Seed, sizeof( Seed ) ) )
+    {
+        return Seed;
+    }
+
+    /* fallback to RtlRandomEx */
     Seed = NtGetTickCount();
     Seed = Instance->Win32.RtlRandomEx( &Seed );
 

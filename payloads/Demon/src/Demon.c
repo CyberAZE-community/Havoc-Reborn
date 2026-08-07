@@ -115,11 +115,11 @@ VOID DemonMetaData( PPACKAGE* MetaData, BOOL Header )
         Instance->Config.AES.Key = Instance->Win32.LocalAlloc( LPTR, 32 );
         Instance->Config.AES.IV  = Instance->Win32.LocalAlloc( LPTR, 16 );
 
-        for ( SHORT i = 0; i < 32; i++ )
-            Instance->Config.AES.Key[ i ] = RandomNumber32();
+        for ( SHORT i = 0; i < 32; i += sizeof( ULONG ) )
+            *( PULONG ) ( Instance->Config.AES.Key + i ) = RandomNumber32();
 
-        for ( SHORT i = 0; i < 16; i++ )
-            Instance->Config.AES.IV[ i ]  = RandomNumber32();
+        for ( SHORT i = 0; i < 16; i += sizeof( ULONG ) )
+            *( PULONG ) ( Instance->Config.AES.IV + i )  = RandomNumber32();
     }
 
     /*
@@ -308,6 +308,7 @@ VOID DemonInit( PVOID ModuleInst, PKAYN_ARGS KArgs )
         Instance->Win32.RtlExitUserThread                 = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLEXITUSERTHREAD );
         Instance->Win32.RtlExitUserProcess                = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLEXITUSERPROCESS );
         Instance->Win32.RtlRandomEx                       = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLRANDOMEX );
+        Instance->Win32.RtlGenRandom                      = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLGENRANDOM );
         Instance->Win32.RtlNtStatusToDosError             = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLNTSTATUSTODOSERROR );
         Instance->Win32.RtlGetVersion                     = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLGETVERSION );
         Instance->Win32.RtlCreateTimerQueue               = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLCREATETIMERQUEUE );

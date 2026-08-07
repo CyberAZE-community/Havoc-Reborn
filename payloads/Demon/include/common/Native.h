@@ -22452,6 +22452,14 @@ RtlRandomEx(
 	);
 
 NTSYSAPI
+BOOLEAN
+NTAPI
+RtlGenRandom(
+    PVOID RandomBuffer,
+    ULONG RandomBufferLength
+	);
+
+NTSYSAPI
 BOOL
 NTAPI
 ImpersonateLoggedOnUser(
