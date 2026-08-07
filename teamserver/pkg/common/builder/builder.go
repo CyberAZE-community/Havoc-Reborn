@@ -221,7 +221,7 @@ func (b *Builder) Build() bool {
 	)
 
 	b.CompileDir = "/tmp/" + utils.GenerateID(10) + "/"
-	err := os.Mkdir(b.CompileDir, os.ModePerm)
+	err := os.Mkdir(b.CompileDir, 0700)
 	if err != nil {
 		logger.Error("Failed to create compile directory: " + err.Error())
 		return false

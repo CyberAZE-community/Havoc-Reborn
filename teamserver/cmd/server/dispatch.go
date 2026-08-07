@@ -1013,11 +1013,12 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							err := t.SendEvent(PayloadBuilder.ClientId, events.Gate.SendStageless("demon"+Ext, pal))
 							if err != nil {
 								logger.Error("Error while sending event: " + err.Error())
-								return
 							}
-							PayloadBuilder.DeletePayload()
 						}
 					}
+
+					/* always clean up the temp build directory, even on failed builds */
+					PayloadBuilder.DeletePayload()
 				}()
 			} else {
 				// send to Services
