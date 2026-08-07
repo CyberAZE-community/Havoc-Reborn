@@ -31,3 +31,22 @@ data/
 client/Build/
 client/Havoc
 client/Modules/
+
+# ignore all markdown; whitelist only the project docs below
+*.md
+!AGENTS.md
+!CHANGELOG.md
+!CREDITS.md
+!README.md
+!RELEASE.md
+!client/README.md
+!payloads/Demon/README.md
+!teamserver/README.md
+!SECURITY.md
+goals
+
+# ignore AI-tooling artifacts
+node_modules/
+package.json
+package-lock.json
+.opencode/

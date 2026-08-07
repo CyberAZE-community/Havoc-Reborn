@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Repo hygiene: `.gitignore` now covers AI-tooling artifacts (`node_modules/`, `package.json`, `package-lock.json`, `.opencode/`) and whitelists `SECURITY.md` so `git add -A` no longer risks committing them. (#99)
 - Docs drift: `teamserver/README.md` now requires Go 1.21+ and documents the real build/run paths (`make ts-build` from the repo root, `./havoc` binary); `WIKI.MD` no longer demands Python 3.10 (any recent Python 3 / `python3-dev` works, currently 3.12) and points clones and the Modules links at this fork; `CONTRIBUTING.MD` now matches the `dev`-branch workflow in `AGENTS.md` instead of telling contributors to PR into `main`. (#101)
 
 - Makefile: version stamping was broken — `$(git rev-parse HEAD)` was expanded by make as an undefined variable (always empty) and the `-X cmd.VersionCommit` ldflags path matched no existing variable; the shell call is now `$(shell git rev-parse HEAD)`, the flag targets `Havoc/cmd.VersionCommit`, and the teamserver declares and prints that commit in its version output. (#100)
