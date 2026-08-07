@@ -381,18 +381,32 @@ func (t *Teamserver) Start() {
 			}
 
 			/* set config of http listener */
-			HandlerData.Hosts = strings.Split(Data["Hosts"].(string), ", ")
-			HandlerData.HostBind = Data["HostBind"].(string)
-			HandlerData.HostRotation = Data["HostRotation"].(string)
-			HandlerData.PortBind = Data["PortBind"].(string)
-			HandlerData.UserAgent = Data["UserAgent"].(string)
-			HandlerData.Headers = strings.Split(Data["Headers"].(string), "\r\n")
-			HandlerData.Uris = strings.Split(Data["Uris"].(string), ", ")
+			var ConfigValid = true
+			getConfigString := func(Key string) string {
+				Value, ok := Data[Key].(string)
+				if !ok {
+					logger.Error(fmt.Sprintf("Listener %v: malformed config entry %q in database, skipping listener", listener["Name"], Key))
+					ConfigValid = false
+				}
+				return Value
+			}
+
+			HandlerData.Hosts = strings.Split(getConfigString("Hosts"), ", ")
+			HandlerData.HostBind = getConfigString("HostBind")
+			HandlerData.HostRotation = getConfigString("HostRotation")
+			HandlerData.PortBind = getConfigString("PortBind")
+			HandlerData.UserAgent = getConfigString("UserAgent")
+			HandlerData.Headers = strings.Split(getConfigString("Headers"), "\r\n")
+			HandlerData.Uris = strings.Split(getConfigString("Uris"), ", ")
 			HandlerData.BehindRedir = t.Profile.Config.Demon.TrustXForwardedFor
 
 			HandlerData.Secure = false
-			if Data["Secure"].(string) == "true" {
+			if getConfigString("Secure") == "true" {
 				HandlerData.Secure = true
+			}
+
+			if !ConfigValid {
+				continue
 			}
 
 			if Data["Response Headers"] != nil {
@@ -404,8 +418,12 @@ func (t *Teamserver) Start() {
 					break
 
 				default:
-					for _, s := range Data["Response Headers"].([]interface{}) {
-						HandlerData.Response.Headers = append(HandlerData.Response.Headers, s.(string))
+					if Headers, ok := Data["Response Headers"].([]interface{}); ok {
+						for _, s := range Headers {
+							if Header, ok := s.(string); ok {
+								HandlerData.Response.Headers = append(HandlerData.Response.Headers, Header)
+							}
+						}
 					}
 
 				}
@@ -435,7 +453,12 @@ func (t *Teamserver) Start() {
 				continue
 			}
 
-			HandlerData.Endpoint = Data["Endpoint"].(string)
+			Endpoint, ok := Data["Endpoint"].(string)
+			if !ok {
+				logger.Error(fmt.Sprintf("Listener %v: malformed Endpoint entry in database, skipping listener", listener["Name"]))
+				continue
+			}
+			HandlerData.Endpoint = Endpoint
 
 			if err := t.ListenerStart(handlers.LISTENER_EXTERNAL, HandlerData); err != nil && err.Error() != "listener already exists" {
 				logger.SetStdOut(os.Stderr)
@@ -460,7 +483,12 @@ func (t *Teamserver) Start() {
 				continue
 			}
 
-			HandlerData.PipeName = Data["PipeName"].(string)
+			PipeName, ok := Data["PipeName"].(string)
+			if !ok {
+				logger.Error(fmt.Sprintf("Listener %v: malformed PipeName entry in database, skipping listener", listener["Name"]))
+				continue
+			}
+			HandlerData.PipeName = PipeName
 
 			if err := t.ListenerStart(handlers.LISTENER_PIVOT_SMB, HandlerData); err != nil && err.Error() != "listener already exists" {
 				logger.SetStdOut(os.Stderr)

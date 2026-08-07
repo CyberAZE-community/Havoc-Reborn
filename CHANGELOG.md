@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - Teamserver: `agent.ParseHeader` rejected buffers holding exactly one more 4-byte field (`Parser.Length() > 4`), truncating minimally-sized headers; the bounds checks are now `>= 4`. (#93)
+- Teamserver: restoring listeners from the database used unchecked type assertions on the stored JSON config, so one corrupted row crashed the teamserver at startup; malformed entries are now logged and skipped. (#108)
 - Teamserver: `ServerFinished` was declared but never initialized, so a failed TLS startup deadlocked on the nil channel instead of shutting down; it is now created with `make(chan bool)`. (#104)
 - Teamserver: the database was opened twice at startup (`NewTeamserver` and again in `Start`), leaking the first handle; `Start` now reuses the already-open database. (#105)
 - Teamserver: `db.AgentExist` deferred `query.Close()` before the error check (nil `*sql.Rows` dereference on query failure), never closed its prepared statement, and only treated exactly-one-row as existing; defers now follow their error checks, the statement is closed, and any positive count means the agent exists. (#106)
