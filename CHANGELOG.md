@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- `RELEASE.md` (upstream historical changelog superseded by `CHANGELOG.md`) and `exception_mac.hpp` (a stray toml11 `exception.hpp` patch left at the repo root by an upstream merge; unreferenced by any build).
+
 ### Fixed
 
 - Vendored `yaotl/hclsyntax` parser had unreachable code (`return nil, nil` after a switch whose branches all return), which failed `go vet ./...` and broke the new CI; the dead statement is removed.
