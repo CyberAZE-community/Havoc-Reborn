@@ -23,24 +23,26 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 		ListenerName   string
 	)
 
+	// assert the config type before taking the lock, so a bad type can
+	// never panic while the mutex is held
+	var Name string
+
+	switch ListenerType {
+	case handlers.LISTENER_HTTP:
+		Name = info.(handlers.HTTPConfig).Name
+		break
+
+	case handlers.LISTENER_PIVOT_SMB:
+		Name = info.(handlers.SMBConfig).Name
+		break
+
+	case handlers.LISTENER_EXTERNAL:
+		Name = info.(handlers.ExternalConfig).Name
+		break
+	}
+
 	t.ListenersMutex.RLock()
 	for _, listener := range t.Listeners {
-		var Name string
-
-		switch ListenerType {
-		case handlers.LISTENER_HTTP:
-			Name = info.(handlers.HTTPConfig).Name
-			break
-
-		case handlers.LISTENER_PIVOT_SMB:
-			Name = info.(handlers.SMBConfig).Name
-			break
-
-		case handlers.LISTENER_EXTERNAL:
-			Name = info.(handlers.ExternalConfig).Name
-			break
-		}
-
 		if Name == listener.Name {
 			t.ListenersMutex.RUnlock()
 			return errors.New("listener already exists")

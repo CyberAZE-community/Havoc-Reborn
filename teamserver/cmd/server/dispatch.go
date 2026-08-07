@@ -814,10 +814,20 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 		switch pk.Body.SubEvent {
 		case packager.Type.Loot.GetFile:
 			var (
-				AgentID  = pk.Body.Info["AgentID"].(string)
-				FileName = pk.Body.Info["FileName"].(string)
 				ClientID string
 			)
+
+			AgentID, ok := pk.Body.Info["AgentID"].(string)
+			if !ok || len(AgentID) == 0 {
+				logger.Error("Loot GetFile: malformed package (AgentID)")
+				return
+			}
+
+			FileName, ok := pk.Body.Info["FileName"].(string)
+			if !ok || len(FileName) == 0 {
+				logger.Error("Loot GetFile: malformed package (FileName)")
+				return
+			}
 
 			t.Clients.Range(func(key, value any) bool {
 				Client := value.(*Client)
@@ -841,7 +851,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 				FoundTime   time.Time
 			)
 
-			if !strings.HasPrefix(DownloadDir, filepath.Clean(logr.LogrInstance.AgentPath)) {
+			if !strings.HasPrefix(DownloadDir, filepath.Clean(logr.LogrInstance.AgentPath)+string(os.PathSeparator)) {
 				logger.Error("Loot GetFile: path traversal attempt (AgentID): " + AgentID)
 				t.SendEvent(ClientID, events.Loot.SendError("Invalid agent id"))
 				return
@@ -863,6 +873,14 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 			if err != nil || len(FoundPath) == 0 {
 				logger.Error("Loot GetFile: file not found: " + FileName)
 				t.SendEvent(ClientID, events.Loot.SendError("File not found on teamserver: "+FileName))
+				return
+			}
+
+			// the file is sent base64-encoded inside a JSON websocket
+			// package, so refuse to read absurdly large files into memory.
+			if info, err := os.Stat(FoundPath); err == nil && info.Size() > 64*1024*1024 {
+				logger.Error("Loot GetFile: file too large: " + FoundPath)
+				t.SendEvent(ClientID, events.Loot.SendError("File too large to download via the client: "+FileName))
 				return
 			}
 

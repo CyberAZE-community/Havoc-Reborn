@@ -273,8 +273,15 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 
 	if val, ok := RegisterInfo["Process Elevated"]; ok {
 		agent.Info.Elevated = "false"
-		if int(val.(float64)) == 1 {
-			agent.Info.Elevated = "true"
+		switch v := val.(type) {
+		case float64:
+			if int(v) == 1 {
+				agent.Info.Elevated = "true"
+			}
+		case string:
+			if v == "1" || v == "true" {
+				agent.Info.Elevated = "true"
+			}
 		}
 	}
 

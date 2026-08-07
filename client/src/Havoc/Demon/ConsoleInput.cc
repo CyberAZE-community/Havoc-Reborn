@@ -62,7 +62,12 @@ static auto JoinAtIndexPreserveQuotes(QStringList list, int index) -> QString
 {
     QString string;
 
+    // callers push an empty sentinel element onto the list; never join it
+    // into the result (it would append a trailing space to the value).
     int size = list.size();
+    while (size > index && list[size - 1].isEmpty())
+        --size;
+
     for (int i = 0; i < (size - index); ++i)
     {
         if (i == 0) string.append(list[index + i]);
@@ -2750,7 +2755,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         if (command.Params[i].IsFilePath)
                         {
                             auto f = FileRead(ParamArray[i]);
-                            if (f != nullptr) Value = f.toBase64();
+                            if (!f.isNull()) Value = f.toBase64();
                             else
                             {
                                 CONSOLE_ERROR("File not found: " + ParamArray[i]);

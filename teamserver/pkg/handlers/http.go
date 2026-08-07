@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net"
 	"context"
 	//"encoding/hex"
 	"io"
@@ -141,7 +142,13 @@ func (h *HTTP) request(ctx *gin.Context) {
 	}
 
 	if len(h.Config.HostHeader) > 0 {
-		if strings.ToLower(ctx.Request.Host) == strings.ToLower(h.Config.HostHeader) {
+		// the Host header may carry a port (host:port); compare without it
+		var RequestHost = ctx.Request.Host
+		if host, _, err := net.SplitHostPort(RequestHost); err == nil {
+			RequestHost = host
+		}
+
+		if strings.ToLower(RequestHost) == strings.ToLower(h.Config.HostHeader) {
 			valid = true
 		} else if strings.ToLower(ctx.Request.Header.Get("X-Forwarded-Host")) == strings.ToLower(h.Config.HostHeader) {
 			valid = true

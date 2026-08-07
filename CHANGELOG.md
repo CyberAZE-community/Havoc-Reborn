@@ -49,6 +49,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client Python API: `RegisterCommand` / `RegisterModule` iterated a copy of the session vector, so `AutoCompleteAdd` mutations never reached the real sessions; now iterate a reference.
 - Client Python console widget: the error path in `RunCode` returned before `emb::reset_stdout()`, leaving Python stdout permanently redirected (and capturing into a dangling reference); `reset_stdout()` now runs on all paths.
 - Client demon console: agent-controlled command output/messages were inserted as unescaped HTML (`CommandOutput.cc` → `AppendRaw`), allowing HTML injection into the operator console; agent data is now escaped with `toHtmlEscaped()` at the source while intentional client-side formatting (colors) is preserved.
+- Code-review follow-ups (post-merge-review of the `dev`↔`main` diff):
+  - Teamserver Loot `GetFile` dispatch no longer does bare `.(string)` assertions on `AgentID`/`FileName` (malformed packages are rejected gracefully), the loot path-traversal prefix check is now path-boundary-aware, and loot files over 64 MiB are refused instead of being read fully into memory.
+  - `agent.go` register parsing: `Process Elevated` no longer panics on string-typed values (accepts `1`/`true` strings as well as numbers).
+  - HTTP listener `HostHeader` validation now compares against the request host with any port stripped, so a port-less profile value no longer drops all agent requests.
+  - Client module-command dispatch: `JoinAtIndexPreserveQuotes` no longer joins the empty sentinel element (trailing space in the final argument), and the file-parameter check uses `QByteArray::isNull()` instead of an always-true `!= nullptr` comparison so missing files are properly reported.
+  - `ListenerStart` no longer performs config type assertions while holding `ListenersMutex`.
 
 ### Changed
 
