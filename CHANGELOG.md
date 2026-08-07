@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - Teamserver: `agent.ParseHeader` rejected buffers holding exactly one more 4-byte field (`Parser.Length() > 4`), truncating minimally-sized headers; the bounds checks are now `>= 4`. (#93)
+- Teamserver: removed the dead `Module` (0x6) and `Misc` (0x7) packager type constants, which duplicated the live `HostFile` (0x6) and `Session` (0x7) IDs; no code referenced them and no active IDs were renumbered. (#66)
 - Teamserver: failed payload builds left world-writable (`0777`) temp directories behind in `/tmp`; the build directory is now created `0700` and removed on all build paths, success or failure. (#67)
 - Teamserver: the HTTP listener derived the external IP with `strings.Split(RemoteAddr, ":")`, producing `"["` for IPv6 peers; it now uses `net.SplitHostPort` and strips any IPv6 zone suffix. (#72)
 - Teamserver: a matching `HostHeader` (or `X-Forwarded-Host`) re-validated requests that had already failed a required profile header check; a host match can no longer override a header mismatch. (#107)

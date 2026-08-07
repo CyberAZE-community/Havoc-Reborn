@@ -89,25 +89,11 @@ type (
 			MSOffice  int
 		}
 
-		// TODO: remove
-		Module struct {
-			Type int
-
-			Register int
-			Unload   int
-			Call     int
-		}
-
 		Service struct {
 			Type int
 
 			RegisterAgent    int
 			RegisterListener int
-		}
-
-		Misc struct {
-			Type       int
-			MessageBox int
 		}
 
 		Teamserver struct {
@@ -225,26 +211,6 @@ var Type = Types{
 		Staged:    0x1,
 		Stageless: 0x2,
 		MSOffice:  0x3,
-	},
-
-	Module: struct {
-		Type     int
-		Register int
-		Unload   int
-		Call     int
-	}{
-		Type:     0x6,
-		Register: 0x1,
-		Unload:   0x2,
-		Call:     0x3,
-	},
-
-	Misc: struct {
-		Type       int
-		MessageBox int
-	}{
-		Type:       0x7,
-		MessageBox: 0x1,
 	},
 
 	Service: struct {
