@@ -206,13 +206,8 @@ func (t *Teamserver) Start() {
 		}
 	}
 
-	/* now load up our db or start a new one if none exist */
+	/* the db is already open from NewTeamserver; don't reopen it here */
 	DBPath := t.DB.Path()
-	if t.DB, err = db.DatabaseNew(TeamserverPath + "/" + DBPath); err != nil {
-		logger.SetStdOut(os.Stderr)
-		logger.Error("Failed to create or open a database: " + err.Error())
-		return
-	}
 
 	if t.DB.Existed() {
 		logger.Info("Opens existing database: " + colors.Blue(DBPath))
