@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Vendored `yaotl/hclsyntax` parser had unreachable code (`return nil, nil` after a switch whose branches all return), which failed `go vet ./...` and broke the new CI; the dead statement is removed.
+
 ## [0.7.2] - 2026-08-07
 
 ### Added
