@@ -1,5 +1,7 @@
 # Havoc
 
+> **Note (community fork):** this file is the legacy upstream documentation and is partially outdated. The maintained documentation lives in the [GitHub wiki](https://github.com/CyberAZE-community/Havoc/wiki) — including up-to-date [build instructions](https://github.com/CyberAZE-community/Havoc/wiki/Building-From-Source) (any Python 3 works; the "Python 3.10 required" notes below are stale).
+
 Havoc is a modern and malleable post-exploitation command and control framework.
 
 #### Table of Contents

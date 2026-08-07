@@ -29,7 +29,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Loot widget: the screenshot context menu never appeared (signal connected to the wrong widget) and its "Download" action was never connected to a handler. Right-clicking a screenshot now shows a working "Get file" action that writes the BMP to a user-chosen path.
+- `teamserver/Install.sh`: the guard checked the nonexistent `dir/x86_64-w64-mingw32-cross`, so the toolchain install/extract block re-ran every time; it now checks `data/x86_64-w64-mingw32-cross` where the tarball actually extracts.
+- `teamserver/Teamserver-Dockerfile`: no longer clones the abandoned upstream `HavocFramework/Havoc` repo; it now `COPY`s this fork's local source (build context = repository root) and builds the teamserver from it, with Go bumped to 1.21 per `teamserver/go.mod`.
+- Root `makefile`: `ts-build` no longer runs `sudo setcap` unconditionally (only when invoked as `make ts-build SETCAP=1`); `client-build` now pins the Modules clone to the `dev` branch explicitly instead of using the current local branch name.
+- Teamserver hardening and internal bug fixes (no protocol/DB/profile changes):
+  - Unauthenticated panic/DoS: per-connection goroutines in `handleRequest` (operator websocket) and service `handleConnection` are now wrapped in `defer`/`recover`; the login/auth path no longer does unchecked `.(string)` assertions on attacker-controlled JSON (comma-ok checks reject malformed packages), and `ClientAuthenticate` handles a missing/non-string `Password` gracefully.
+  - Duplicate-operator check compared the not-yet-set local `client.Username` (always empty); it now compares each connected client's stored username.
+  - `SendEvent` returned on write error without unlocking the client write mutex, permanently deadlocking later sends to that client (the old "seems to crash the server" workaround); the mutex is now released via `defer` on all paths.
+  - `EventAppend` appended the event twice to the returned slice and `EventRemove` recomputed the removal on the already-truncated slice (dropping an extra event); both now return the actual list.
+  - `Teamserver.Listeners` add/remove/iterate paths are now guarded by a `sync.RWMutex`.
+  - `parser.ParseInt32`/`ParseInt64`/`ParseBool` read `Length-width` bytes instead of exactly the integer width when more data remained, corrupting every multi-field parse.
+  - HTTP and external listener request bodies are now capped at 16 MiB (`http.MaxBytesReader`).
+  - Removed the fingerprintable `X-Havoc: true` header from the fake-404 response.
+  - Teamserver and listener TLS key/cert files are now written with `0600` instead of `0644`.
+- Client: fix 1-byte heap overflow in the duplicated `AllocMov` macro (all 7 copies: `PyDemonClass.cc`, `PyAgentClass.hpp`, `Event.cc`, `PyWidgetClass.cc`, `PyDialogClass.cc`, `PyTreeClass.cc`, `PyLoggerClass.cc`) — it allocated `size` bytes and then `strcpy`'d the trailing NUL past the buffer; now allocates `size + 1`.
+- Client Python API: fix off-by-one in `GetAgents()` that skipped the first service agent and left the last list slot uninitialized, crashing Python consumers.
+- Client packager: `case 0x5` (teamserver IPs / Demon config) in `DispatchInitConnection` fell through to `default: return false`; the connection-error message box also had inverted logic (showed the empty message and hid the real one).
+- Client connector: every decoded `Package` from `DecodePackage` was leaked; it is now freed after `DispatchPackage` returns.
+- Client Python API: `RegisterCommand` / `RegisterModule` iterated a copy of the session vector, so `AutoCompleteAdd` mutations never reached the real sessions; now iterate a reference.
+- Client Python console widget: the error path in `RunCode` returned before `emb::reset_stdout()`, leaving Python stdout permanently redirected (and capturing into a dangling reference); `reset_stdout()` now runs on all paths.
+- Client demon console: agent-controlled command output/messages were inserted as unescaped HTML (`CommandOutput.cc` → `AppendRaw`), allowing HTML injection into the operator console; agent data is now escaped with `toHtmlEscaped()` at the source while intentional client-side formatting (colors) is preserved.
 
 ### Changed
 
+- **README rewritten for the fork** — identifies this as the community fork, points all documentation/wiki/issue links to `CyberAZE-community/Havoc` (wiki: https://github.com/CyberAZE-community/Havoc/wiki), adds a fork-changes summary and corrected quick-start (Go 1.21+, any Python 3), and drops the outdated Python 3.10 requirement. `WIKI.MD` now opens with a pointer to the maintained GitHub wiki. The repo homepage was set to the wiki.
 - **Client Python support modernized** — the client now builds against any Python 3 (verified with 3.12). `client/CMakeLists.txt` uses modern `find_package(Python 3 COMPONENTS Interpreter Development)` instead of the deprecated `FindPythonLibs` module that effectively pinned older Python versions. The "Python 3.10 required" documentation note was outdated.
