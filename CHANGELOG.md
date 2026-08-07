@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Makefile: version stamping was broken — `$(git rev-parse HEAD)` was expanded by make as an undefined variable (always empty) and the `-X cmd.VersionCommit` ldflags path matched no existing variable; the shell call is now `$(shell git rev-parse HEAD)`, the flag targets `Havoc/cmd.VersionCommit`, and the teamserver declares and prints that commit in its version output. (#100)
 - Demon: `RandomNumber32()` re-seeded `RtlRandomEx` from `NtGetTickCount()` on every call and its result was stored byte-wise, so the transport AES key/IV were 32/16 copies of a single byte generated within one tick; it now uses the system CSPRNG `ntdll!RtlGenRandom` (falling back to `RtlRandomEx`) and the key/IV loops use the full 32-bit output across 4 bytes. (#38)
 - Teamserver: inverted nil check in the SMB pivot output loop dereferenced a nil pivot agent and panicked when a pivot in the chain was no longer registered; the loop now breaks when the pivot instance cannot be found. (#75)
 - Teamserver: `agent.ParseHeader` rejected buffers holding exactly one more 4-byte field (`Parser.Length() > 4`), truncating minimally-sized headers; the bounds checks are now `>= 4`. (#93)

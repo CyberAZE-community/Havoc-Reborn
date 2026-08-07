@@ -10,13 +10,13 @@ all: ts-build client-build
 ts-build:
 	@ echo "[*] building teamserver"
 	@ ./teamserver/Install.sh
-	@ cd teamserver; GO111MODULE="on" go build -ldflags="-s -w -X cmd.VersionCommit=$(git rev-parse HEAD)" -o ../havoc main.go
+	@ cd teamserver; GO111MODULE="on" go build -ldflags="-s -w -X Havoc/cmd.VersionCommit=$(shell git rev-parse HEAD)" -o ../havoc main.go
 	@ # optional: run with SETCAP=1 (e.g. `make ts-build SETCAP=1`) to allow running the server as a regular user on privileged ports
 	@ if [ "$(SETCAP)" = "1" ]; then sudo setcap 'cap_net_bind_service=+ep' havoc; fi
 
 dev-ts-compile:
 	@ echo "[*] compile teamserver"
-	@ cd teamserver; GO111MODULE="on" go build -ldflags="-s -w -X cmd.VersionCommit=$(git rev-parse HEAD)" -o ../havoc main.go 
+	@ cd teamserver; GO111MODULE="on" go build -ldflags="-s -w -X Havoc/cmd.VersionCommit=$(shell git rev-parse HEAD)" -o ../havoc main.go
 
 ts-cleanup: 
 	@ echo "[*] teamserver cleanup"
