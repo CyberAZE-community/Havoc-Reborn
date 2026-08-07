@@ -185,19 +185,19 @@ func ParseHeader(data []byte) (Header, error) {
 		Parser = parser.NewParser(data)
 	)
 
-	if Parser.Length() > 4 {
+	if Parser.Length() >= 4 {
 		Header.Size = Parser.ParseInt32()
 	} else {
 		return Header, errors.New("failed to parse package size")
 	}
 
-	if Parser.Length() > 4 {
+	if Parser.Length() >= 4 {
 		Header.MagicValue = Parser.ParseInt32()
 	} else {
 		return Header, errors.New("failed to parse magic value")
 	}
 
-	if Parser.Length() > 4 {
+	if Parser.Length() >= 4 {
 		Header.AgentID = Parser.ParseInt32()
 	} else {
 		return Header, errors.New("failed to parse agent id")
