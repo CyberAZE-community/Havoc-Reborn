@@ -253,6 +253,25 @@ func (t *Teamserver) Start() {
 				Headers:      listener.Headers,
 				Uris:         listener.Uris,
 				Secure:       listener.Secure,
+				HostHeader:   listener.HostHeader,
+				Proxy:        handlers.ProxyConfig{},
+			}
+
+			// Set proxy settings
+			if listener.Proxy != nil {
+				if strings.HasPrefix(listener.Proxy.Host, "http://") || strings.HasPrefix(listener.Proxy.Host, "https://") {
+					logger.Error("Proxy host should not start with scheme")
+					return
+				}
+
+				HandlerData.Proxy = handlers.ProxyConfig{
+					Enabled:  len(listener.Proxy.Host) > 0,
+					Type:     listener.Proxy.Type,
+					Host:     listener.Proxy.Host,
+					Port:     strconv.Itoa(listener.Proxy.Port),
+					Username: listener.Proxy.User,
+					Password: listener.Proxy.Pass,
+				}
 			}
 
 			if listener.Cert != nil {
@@ -370,7 +389,7 @@ func (t *Teamserver) Start() {
 			HandlerData.HostRotation = Data["HostRotation"].(string)
 			HandlerData.PortBind = Data["PortBind"].(string)
 			HandlerData.UserAgent = Data["UserAgent"].(string)
-			HandlerData.Headers = strings.Split(Data["Headers"].(string), ", ")
+			HandlerData.Headers = strings.Split(Data["Headers"].(string), "\r\n")
 			HandlerData.Uris = strings.Split(Data["Uris"].(string), ", ")
 			HandlerData.BehindRedir = t.Profile.Config.Demon.TrustXForwardedFor
 
@@ -384,7 +403,7 @@ func (t *Teamserver) Start() {
 				switch Data["Response Headers"].(type) {
 
 				case string:
-					HandlerData.Response.Headers = strings.Split(Data["Response Headers"].(string), ", ")
+					HandlerData.Response.Headers = strings.Split(Data["Response Headers"].(string), "\r\n")
 					break
 
 				default:
