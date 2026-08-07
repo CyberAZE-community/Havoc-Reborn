@@ -33,6 +33,7 @@ client/Havoc
 client/Modules/
 
 # ignore all markdown; whitelist only the project docs below
+FINDINGS.md
 *.md
 !AGENTS.md
 !CHANGELOG.md
