@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `SECURITY.md` with a vulnerability-reporting policy (GitHub Security Advisories; only the latest release is supported). (#101)
+
 ### Fixed
+
+- Docs drift: `teamserver/README.md` now requires Go 1.21+ and documents the real build/run paths (`make ts-build` from the repo root, `./havoc` binary); `WIKI.MD` no longer demands Python 3.10 (any recent Python 3 / `python3-dev` works, currently 3.12) and points clones and the Modules links at this fork; `CONTRIBUTING.MD` now matches the `dev`-branch workflow in `AGENTS.md` instead of telling contributors to PR into `main`. (#101)
 
 - Makefile: version stamping was broken — `$(git rev-parse HEAD)` was expanded by make as an undefined variable (always empty) and the `-X cmd.VersionCommit` ldflags path matched no existing variable; the shell call is now `$(shell git rev-parse HEAD)`, the flag targets `Havoc/cmd.VersionCommit`, and the teamserver declares and prints that commit in its version output. (#100)
 - Demon: `RandomNumber32()` re-seeded `RtlRandomEx` from `NtGetTickCount()` on every call and its result was stored byte-wise, so the transport AES key/IV were 32/16 copies of a single byte generated within one tick; it now uses the system CSPRNG `ntdll!RtlGenRandom` (falling back to `RtlRandomEx`) and the key/IV loops use the full 32-bit output across 4 bytes. (#38)

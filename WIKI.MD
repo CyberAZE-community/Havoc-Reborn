@@ -87,13 +87,11 @@ _You will experience formatting issues in the Havoc client if you are not using 
 
 #### `fatal error: Python.h: No such file or directory`
 
-If you get an error that `Python.h` isn't found when building, you need to make sure Python 3.10 is installed and you have the Python 3.10 development files. If you are using Ubuntu LTS you may need to leverage a PPA such as `deadsnakes` to get a newer version of Python.
+If you get an error that `Python.h` isn't found when building, you need to make sure Python 3 is installed along with its development files (`python3-dev`; the client currently builds against Python 3.12, and any recent Python 3 works).
 
 ```
 sudo apt install build-essential
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install python3.10 python3.10-dev
+sudo apt install python3-dev
 ```
 
 #### `incomplete type ‘QTime’ used in nested name specifier`
@@ -120,22 +118,18 @@ sudo apt install -y git build-essential apt-utils cmake libfontconfig1 libglu1-m
 
 #### Ubuntu 20.04 / 22.04
 
-> You must enable Python 3.10 in your APT repositories before you can run the Client successfully.
+> Any recent Python 3 works (the client currently builds against Python 3.12); the `python3-dev` package from the standard repositories is enough.
 
 ```
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install python3.10 python3.10-dev
+sudo apt install python3-dev
 ```
 
 #### Debian 10/11
 
-> You must setup the `bookworm` repo for Python 3.10.
+> Use the `python3-dev` package from your distribution's repositories.
 
 ```
-echo 'deb http://ftp.de.debian.org/debian bookworm main' >> /etc/apt/sources.list
-sudo apt update
-sudo apt install python3-dev python3.10-dev libpython3.10 libpython3.10-dev python3.10
+sudo apt install python3-dev
 ```
 
 #### Arch-based Distros
@@ -149,7 +143,7 @@ sudo pacman -S git gcc base-devel cmake fontconfig glu gtest spdlog boost boost-
 > You must have [`homebrew`](https://brew.sh) installed.
 ```
 brew install --cask cmake
-brew install python@3.10 qt@5 spdlog golang
+brew install python@3.12 qt@5 spdlog golang
 brew link --overwrite qt@5
 ```
 
@@ -157,7 +151,7 @@ brew link --overwrite qt@5
 
 Clone the repository:
 ```
-git clone https://github.com/HavocFramework/Havoc.git
+git clone https://github.com/CyberAZE-community/Havoc.git
 ```
 
 Build and Run:
@@ -681,10 +675,10 @@ Aside from Havoc's built-in commands, Modules can be loaded into the framework t
 
 An example of some of Havoc's official modules can be found at this repository:
 
-[https://github.com/HavocFramework/Modules](https://github.com/HavocFramework/Modules)
+[https://github.com/CyberAZE-community/Modules](https://github.com/CyberAZE-community/Modules)
 
 
-Module Template: [https://github.com/HavocFramework/Modules/tree/main/Template](https://github.com/HavocFramework/Modules/tree/main/Template)
+Module Template: [https://github.com/CyberAZE-community/Modules/tree/dev/Template](https://github.com/CyberAZE-community/Modules/tree/dev/Template)
 
 
 Official Modules:
