@@ -166,20 +166,21 @@ func (db *DB) AgentExist(AgentID int) bool {
 	if err != nil {
 		return false
 	}
+	defer stmt.Close()
 
 	// execute statement
 	query, err := stmt.Query(AgentID)
-	defer query.Close()
 	if err != nil {
 		return false
 	}
+	defer query.Close()
 
 	for query.Next() {
 		var NumRows int
 
 		query.Scan(&NumRows)
 
-		if NumRows == 1 {
+		if NumRows > 0 {
 			return true
 		} else {
 			return false
