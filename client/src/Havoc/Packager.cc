@@ -371,6 +371,9 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
         case Util::Packager::Listener::Remove:
         {
 
+            if ( HavocX::Teamserver.TabSession->ListenerTableWidget == nullptr )
+                break;
+
             HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerRemove( Package->Body.Info[ "Name" ].c_str() );
 
             break;
@@ -980,7 +983,7 @@ bool Packager::DispatchTeamserver( Util::Packager::PPackage Package )
             if ( HavocX::Teamserver.TabSession->Teamserver == nullptr )
             {
                 HavocX::Teamserver.TabSession->Teamserver = new Teamserver;
-                HavocX::Teamserver.TabSession->Teamserver->setupUi( new QDialog );
+                HavocX::Teamserver.TabSession->Teamserver->setupUi( new QDialog( HavocX::Teamserver.TabSession ) );
             }
 
             HavocX::Teamserver.TabSession->Teamserver->AddLoggerText( Text );
