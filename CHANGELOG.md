@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `teamserver/Install.sh` no longer downloads the musl.cc cross toolchains (the URLs are dead); it installs the distro `mingw-w64` packages instead and skips `sudo` when running as root. `profiles/havoc.yaotl` now points `Teamserver.Build` at the system compilers (`/usr/bin/x86_64-w64-mingw32-gcc`, `/usr/bin/i686-w64-mingw32-gcc`), so fresh setups no longer fail with "Compiler x64 path doesn't exist".
 
+### Changed
+
+- The client Modules are now cloned from the fork-owned [CyberAZE-community/Modules](https://github.com/CyberAZE-community/Modules) repository (`dev` branch) instead of upstream `HavocFramework/Modules`.
+
 ## [0.7.1] - 2026-08-07
 
 ### Added

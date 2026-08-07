@@ -93,7 +93,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list. Roadmap and known issues are
 - Custom Agent Support — see [Building a Third-Party Agent](https://github.com/CyberAZE-community/Havoc/wiki/Building-a-Third-Party-Agent)
   - [Talon](https://github.com/HavocFramework/Talon) (upstream reference agent)
 - [Python API](https://github.com/HavocFramework/havoc-py)
-- [Modules](https://github.com/HavocFramework/Modules)
+- [Modules](https://github.com/CyberAZE-community/Modules) (forked)
 
 ---
 
