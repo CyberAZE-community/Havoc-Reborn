@@ -41,7 +41,9 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
         if (HavocX::callbackMessage)
         {
             PyObject *arglist = Py_BuildValue( "s", Output.toUtf8().constData() );
-            PyObject_CallFunctionObjArgs( HavocX::callbackMessage, arglist, NULL );
+            PyObject *result  = PyObject_CallFunctionObjArgs( HavocX::callbackMessage, arglist, NULL );
+            Py_XDECREF( result );
+            Py_XDECREF( arglist );
             Py_XDECREF( HavocX::callbackMessage );
             HavocX::callbackMessage = NULL;
         }

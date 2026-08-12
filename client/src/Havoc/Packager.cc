@@ -572,7 +572,9 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
                     if ( HavocX::callbackGate )
                     {
                         PyObject* pyByteArray= PyUnicode_DecodeFSDefault(Package->Body.Info[ "PayloadArray" ].c_str());
-                        PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        PyObject* result     = PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        Py_XDECREF( result );
+                        Py_XDECREF( pyByteArray );
                     }
                     else
                     {
@@ -672,6 +674,8 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                             PyErr_PrintEx(0);
                             PyErr_Clear();
                         }
+                        Py_XDECREF( Return );
+                        Py_XDECREF( arglist );
                     } else {
                         spdlog::error( "Callback is not callable" );
                     }
@@ -765,7 +769,9 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                                     if ( PyCallable_Check( Callback ) )
                                     {
                                         PyObject *arglist = Py_BuildValue( "ssOss", Session.Name.toStdString().c_str(), TaskID.toStdString().c_str(), Worked == "true" ? Py_True : Py_False, Output.toStdString().c_str(), Error.toStdString().c_str() );
-                                        PyObject_CallObject( Callback, arglist );
+                                        PyObject *result  = PyObject_CallObject( Callback, arglist );
+                                        Py_XDECREF( result );
+                                        Py_XDECREF( arglist );
                                         Py_XDECREF( Callback );
                                     } else {
                                         spdlog::error( "Callback is not callable" );

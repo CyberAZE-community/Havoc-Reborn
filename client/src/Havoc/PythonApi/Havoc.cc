@@ -181,6 +181,8 @@ PyObject* PythonAPI::Havoc::Core::GeneratePayload( PyObject *self, PyObject *arg
 
     HavocX::Connector->SendPackage( Package );
 
+    delete Package;
+
     Py_RETURN_NONE;
 }
 

@@ -245,6 +245,8 @@ void Payload::buttonGenerate()
     HavocX::GateGUI = true;
 
     HavocX::Connector->SendPackage( Package );
+
+    delete Package;
 }
 
 auto Payload::ReceivedImplantAndSave( QString FileName, QByteArray ImplantArray ) -> void

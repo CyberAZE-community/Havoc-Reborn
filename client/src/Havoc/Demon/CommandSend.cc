@@ -23,6 +23,8 @@ auto NewPackageCommand( const QString& TeamserverName, Util::Packager::Body_t Bo
     Package->Body = Body;
 
     HavocX::Connector->SendPackage( Package );
+
+    delete Package;
 }
 
 auto CommandExecute::FS( const QString& TaskID, QString SubCommand, QString Arguments ) -> void

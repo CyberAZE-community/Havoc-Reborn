@@ -505,6 +505,8 @@ void LootWidget::onDownloadSave()
     };
 
     HavocX::Connector->SendPackage( Package );
+
+    delete Package;
 }
 
 void LootWidget::onScreenshotSave()
