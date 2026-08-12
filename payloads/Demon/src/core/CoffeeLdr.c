@@ -28,6 +28,9 @@
 #endif
 
 PVOID CoffeeFunctionReturn = NULL;
+PVOID CoffeeBofBase        = NULL;
+PVOID CoffeeBofEnd         = NULL;
+PVOID CoffeeThreadId       = NULL;
 
 LONG WINAPI VehDebugger( PEXCEPTION_POINTERS Exception )
 {
@@ -35,6 +38,16 @@ LONG WINAPI VehDebugger( PEXCEPTION_POINTERS Exception )
     PPACKAGE Package = NULL;
 
     PRINTF( "Exception: %p\n", Exception->ExceptionRecord->ExceptionCode )
+
+    /* only handle exceptions that happened inside the BOF we are currently
+     * executing (and on its thread). the handler is process-wide, anything
+     * else belongs to unrelated code and must be passed on to the
+     * remaining exception handlers instead of hijacking their RIP. */
+    if ( ! CoffeeFunctionReturn ||
+         NtCurrentTeb()->ClientId.UniqueThread != CoffeeThreadId ||
+         U_PTR( Exception->ExceptionRecord->ExceptionAddress ) < U_PTR( CoffeeBofBase ) ||
+         U_PTR( Exception->ExceptionRecord->ExceptionAddress ) >= U_PTR( CoffeeBofEnd ) )
+        return EXCEPTION_CONTINUE_SEARCH;
 
     // Leave faulty function
 #if _WIN64
@@ -271,6 +284,12 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
             PACKAGE_ERROR_WIN32
             return FALSE;
         }
+
+        /* remember the BOF image range and thread so the (process wide)
+         * VEH handler only handles exceptions that belong to this BOF */
+        CoffeeBofBase  = Coffee->ImageBase;
+        CoffeeBofEnd   = C_PTR( U_PTR( Coffee->ImageBase ) + Coffee->BofSize );
+        CoffeeThreadId = NtCurrentTeb()->ClientId.UniqueThread;
     }
 
     // set appropriate permissions for each section
@@ -309,7 +328,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
             if ( ! Success )
             {
                 PUTS( "Failed to protect memory" )
-                return FALSE;
+                goto END;
             }
         }
     }
@@ -321,7 +340,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
         if ( ! Success )
         {
             PUTS( "Failed to protect memory" )
-            return FALSE;
+            goto END;
         }
     }
 
@@ -357,7 +376,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
         PackageAddString( Package, Function );
         PackageTransmit( Package );
 
-        return FALSE;
+        goto END;
     }
 
     // make sure the entry point is on executable memory
@@ -377,18 +396,25 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
     if ( ! Success )
     {
         PRINTF( "The entry point (%p) is not on executable memory\n", CoffeeMain )
-        return FALSE;
+        goto END;
     }
 
     PUTS( "[*] Execute coffee main\n" );
     CoffeeFunction( CoffeeMain, Argument, Size );
 
-    // Remove our exception handler
+    Success = TRUE;
+
+END:
+    // Remove our exception handler on every exit path,
+    // otherwise it stays registered process-wide
     if ( VehHandle ) {
         Instance->Win32.RtlRemoveVectoredExceptionHandler( VehHandle );
+        CoffeeBofBase  = NULL;
+        CoffeeBofEnd   = NULL;
+        CoffeeThreadId = NULL;
     }
 
-    return TRUE;
+    return Success;
 }
 
 VOID CoffeeCleanup( PCOFFEE Coffee )
