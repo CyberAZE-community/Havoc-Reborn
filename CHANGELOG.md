@@ -57,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Demon: the SMB pivot named pipe granted full access to the Everyone SID with only the 32-bit DemonId as authentication; the DACL is now restricted to the process owner (pivot children run as the same user, wire protocol unchanged). (#90)
 - Client: the Python API `AllocMov` macro allocated `QString::size()+1` (UTF-16 code units) and then `strcpy`'d the UTF-8 text, overflowing the heap buffer for any non-ASCII value; it now allocates `strlen(src)+1`. `DemonClass_dealloc`/`AgentClass_dealloc` also `Py_XDECREF`'d plain `char*` members (type confusion); they are now `free`'d. (#39)
 - Client: the operator websocket disabled TLS certificate verification entirely (`VerifyNone` + `ignoreSslErrors`). Verification is now on by default; because the teamserver ships self-signed certificates, the connect dialog has an opt-in "Ignore SSL errors" checkbox that restores the old insecure behavior only when explicitly enabled. (#40)
+- Client: agent/teamserver-controlled strings (session metadata, listener names and errors, chat user/text, event-viewer user names) were inserted into HTML-rendered widgets unescaped, allowing HTML injection; they are now escaped with `toHtmlEscaped()` at the insertion points. Chat messages are now escaped at display time instead of at send time. (#54)
 
 ## [0.7.2] - 2026-08-07
 

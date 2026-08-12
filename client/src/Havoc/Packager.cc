@@ -349,7 +349,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
 
             if ( ListenerInfo.Status.compare( "Online" ) == 0 )
             {
-                auto MsgStr = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Started " + Util::ColorText::Green( "\"" + QString( ListenerInfo.Name.c_str() ) + "\"" ) + " listener";
+                auto MsgStr = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Started " + Util::ColorText::Green( "\"" + QString( ListenerInfo.Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener";
                 auto Time   = QString( Package->Head.Time.c_str() );
 
                 HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -467,7 +467,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                         MessageBox( "Listener Error", QString( Error.c_str() ), QMessageBox::Critical );
                         HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
-                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ) + "\"" ) + " listener: " + Util::ColorText::Red( Error.c_str() );
+                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
 
                         HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -482,7 +482,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                     {
                         HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
-                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ) + "\"" ) + " listener: " + Util::ColorText::Red( Error.c_str() );
+                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
 
                         HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -524,7 +524,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
 
         case Util::Packager::Chat::NewUser:
         {
-            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() );
+            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() ).toHtmlEscaped();
             auto Time = QString( Package->Head.Time.c_str() );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time,  "[" + Util::ColorText::Green( "+" ) + "] " + Util::ColorText::Green( user + " connected to teamserver" ) );
@@ -534,7 +534,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
 
         case Util::Packager::Chat::UserDisconnect:
         {
-            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() );
+            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() ).toHtmlEscaped();
             auto Time = QString( Package->Head.Time.c_str() );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, "[" + Util::ColorText::Red( "-" ) + "] " + Util::ColorText::Red( user + " disconnected from teamserver" ) );
@@ -654,7 +654,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
             TeamserverTab->LootWidget->AddSessionSection( Agent.Name );
 
             auto Time    = Agent.First;
-            auto Message = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Initialized " + Util::ColorText::Cyan( Agent.Name ) + " :: " + Util::ColorText::Yellow( Agent.User + "@" + Agent.Internal ) + Util::ColorText::Cyan( " (" ) + Util::ColorText::Red( Agent.Computer ) + Util::ColorText::Cyan( ")" );
+            auto Message = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Initialized " + Util::ColorText::Cyan( Agent.Name.toHtmlEscaped() ) + " :: " + Util::ColorText::Yellow( ( Agent.User + "@" + Agent.Internal ).toHtmlEscaped() ) + Util::ColorText::Cyan( " (" ) + Util::ColorText::Red( Agent.Computer.toHtmlEscaped() ) + Util::ColorText::Cyan( ")" );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, Message );
 
