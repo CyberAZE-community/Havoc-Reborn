@@ -161,28 +161,56 @@ BOOL SmbRecv( PBUFFER Resp )
  * But seems like MeterPreter doesn't free everything so let's do this too. */
 VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES SecurityAttr )
 {
-    SID_IDENTIFIER_AUTHORITY SidIdAuth      = SECURITY_WORLD_SID_AUTHORITY;
     SID_IDENTIFIER_AUTHORITY SidLabel       = SECURITY_MANDATORY_LABEL_AUTHORITY;
     EXPLICIT_ACCESSW         ExplicitAccess = { 0 };
     DWORD                    Result         = 0;
     PACL                     DAcl           = NULL;
+    HANDLE                   hToken         = NULL;
+    PTOKEN_USER              UserToken      = NULL;
+    ULONG                    TokenLength    = 0;
     /* zero them out. */
     MemSet( SmbSecAttr,   0, sizeof( SMB_PIPE_SEC_ATTR ) );
     MemSet( SecurityAttr, 0, sizeof( PSECURITY_ATTRIBUTES ) );
 
-    if ( ! Instance->Win32.AllocateAndInitializeSid( &SidIdAuth, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &SmbSecAttr->Sid ) )
+    /* resolve the SID of the user we are running as. the pipe is only
+     * meant for our own pivot children (which run as the same user),
+     * not for every local user. if we can't resolve it, fail closed:
+     * no security attributes means the pipe creation fails. */
+    if ( ! NT_SUCCESS( SysNtOpenProcessToken( NtCurrentProcess(), TOKEN_QUERY, &hToken ) ) )
     {
-        PRINTF( "AllocateAndInitializeSid failed: %u\n", NtGetLastError() );
+        PRINTF( "NtOpenProcessToken failed: %x\n", NtGetLastError() );
         return;
     }
-    PRINTF( "SmbSecAttr->Sid: %p\n", SmbSecAttr->Sid );
+
+    SysNtQueryInformationToken( hToken, TokenUser, NULL, 0, &TokenLength );
+    if ( ! TokenLength )
+    {
+        PRINTF( "NtQueryInformationToken failed: %x\n", NtGetLastError() );
+        SysNtClose( hToken );
+        return;
+    }
+
+    UserToken = MmHeapAlloc( TokenLength );
+    if ( ! UserToken ||
+         ! NT_SUCCESS( SysNtQueryInformationToken( hToken, TokenUser, UserToken, TokenLength, &TokenLength ) ) )
+    {
+        PRINTF( "NtQueryInformationToken failed: %x\n", NtGetLastError() );
+        SysNtClose( hToken );
+        if ( UserToken ) {
+            DATA_FREE( UserToken, TokenLength );
+        }
+        return;
+    }
+
+    SysNtClose( hToken );
+    hToken = NULL;
 
     ExplicitAccess.grfAccessPermissions = SPECIFIC_RIGHTS_ALL | STANDARD_RIGHTS_ALL;
     ExplicitAccess.grfAccessMode        = SET_ACCESS;
     ExplicitAccess.grfInheritance       = NO_INHERITANCE;
     ExplicitAccess.Trustee.TrusteeForm  = TRUSTEE_IS_SID;
-    ExplicitAccess.Trustee.TrusteeType  = TRUSTEE_IS_WELL_KNOWN_GROUP;
-    ExplicitAccess.Trustee.ptstrName    = SmbSecAttr->Sid;
+    ExplicitAccess.Trustee.TrusteeType  = TRUSTEE_IS_USER;
+    ExplicitAccess.Trustee.ptstrName    = UserToken->User.Sid;
 
     Result = Instance->Win32.SetEntriesInAclW( 1, &ExplicitAccess, NULL, &DAcl );
     if ( Result != ERROR_SUCCESS )
@@ -190,6 +218,9 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
         PRINTF( "SetEntriesInAclW failed: %u\n", Result );
     }
     PRINTF( "DACL: %p\n", DAcl );
+
+    /* the SID has been copied into the ACL at this point */
+    DATA_FREE( UserToken, TokenLength );
 
     if ( ! Instance->Win32.AllocateAndInitializeSid( &SidLabel, 1, SECURITY_MANDATORY_LOW_RID, 0, 0, 0, 0, 0, 0, 0, &SmbSecAttr->SidLow ) )
     {
