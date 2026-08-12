@@ -489,7 +489,19 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
                 return FALSE;
             }
 
-            if ( Coffee->Reloc->VirtualAddress + sizeof( UINT32 ) > Coffee->SecMap[ SectionCnt ].Size )
+            /* the required size depends on the relocation type:
+             * IMAGE_REL_AMD64_ADDR64 writes 8 bytes at RelocAddr, all
+             * other handled types write 4. checking only 4 bytes would
+             * allow a 4-byte out-of-bounds write at the section end */
+            UINT32 RelocSize = sizeof( UINT32 );
+
+#if _WIN64
+            if ( Coffee->Reloc->Type == IMAGE_REL_AMD64_ADDR64 ) {
+                RelocSize = sizeof( UINT64 );
+            }
+#endif
+
+            if ( Coffee->Reloc->VirtualAddress + RelocSize > Coffee->SecMap[ SectionCnt ].Size )
             {
                 PRINTF( "Relocation address 0x%x out of bounds (section size: 0x%x)\n", Coffee->Reloc->VirtualAddress, Coffee->SecMap[ SectionCnt ].Size )
                 return FALSE;
