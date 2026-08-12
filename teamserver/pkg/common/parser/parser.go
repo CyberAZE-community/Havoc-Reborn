@@ -163,8 +163,17 @@ func (p *Parser) ParseBytes() []byte {
 	var bytesBuffer []byte
 
 	if p.Length() >= 4 {
-		BytesSize := uint(p.ParseInt32())
-		if BytesSize > uint(p.Length()) {
+		// parse the size as a signed 32-bit value: a negative or huge
+		// length must never be used for allocation/slicing. clamp to
+		// what actually remains in the buffer.
+		var BytesSize int
+		if p.bigEndian {
+			BytesSize = int(int32(binary.BigEndian.Uint32(p.buffer[:4])))
+		} else {
+			BytesSize = int(int32(binary.LittleEndian.Uint32(p.buffer[:4])))
+		}
+		p.buffer = p.buffer[4:]
+		if BytesSize < 0 || BytesSize > p.Length() {
 			bytesBuffer, p.buffer = p.buffer[:p.Length()], p.buffer[p.Length():]
 		} else {
 			bytesBuffer, p.buffer = p.buffer[:BytesSize], p.buffer[BytesSize:]
