@@ -534,6 +534,20 @@ func (t *Teamserver) handleRequest(id string) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(fmt.Sprintf("Recovered from panic while handling client (%v) request: %v", id, r))
+
+			// clean up the client the same way a normal disconnect does,
+			// otherwise a panicked handler leaves a ghost (possibly
+			// authenticated) operator behind that blocks reconnects
+			if value, isOk := t.Clients.Load(id); isOk {
+				client := value.(*Client)
+				if err := client.Connection.Close(); err != nil {
+					logger.Error("Error while closing Client connection: " + err.Error())
+				}
+				if client.Authenticated {
+					t.EventAppend(events.ChatLog.UserDisconnected(client.Username))
+				}
+			}
+			t.RemoveClient(id)
 		}
 	}()
 
