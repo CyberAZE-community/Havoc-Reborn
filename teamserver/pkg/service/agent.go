@@ -4,11 +4,16 @@ import (
     "encoding/base64"
     "encoding/json"
     "fmt"
+    "time"
 
     "Havoc/pkg/agent"
     "Havoc/pkg/logger"
     "Havoc/pkg/utils"
 )
+
+// responseTimeout bounds how long SendResponse waits for a third-party
+// agent to answer a request
+const responseTimeout = 5 * time.Minute
 
 type CommandParam struct {
     Name       string `json:"Name"`
@@ -111,11 +116,14 @@ func (a *AgentService) SendResponse(AgentInfo any, Header agent.Header) []byte {
 
     logger.Debug(AgentResponse)
 
+    a.client.RespMtx.Lock()
     if a.client.Responses == nil {
         a.client.Responses = make(map[string]chan []byte)
     }
 
-    a.client.Responses[randID] = make(chan []byte)
+    // buffered so a late response never blocks the service handler
+    a.client.Responses[randID] = make(chan []byte, 1)
+    a.client.RespMtx.Unlock()
 
     a.client.Mutex.Lock()
     err := a.client.Conn.WriteJSON(AgentResponse)
@@ -123,18 +131,31 @@ func (a *AgentService) SendResponse(AgentInfo any, Header agent.Header) []byte {
 
     if err != nil {
         logger.Error("Failed to write json to websocket: " + err.Error())
+        a.client.RespMtx.Lock()
+        delete(a.client.Responses, randID)
+        a.client.RespMtx.Unlock()
         return nil
     }
 
-    var data []byte
-    if channel, ok := a.client.Responses[randID]; ok {
-        data = <-channel
+    a.client.RespMtx.Lock()
+    channel := a.client.Responses[randID]
+    a.client.RespMtx.Unlock()
 
-        close(a.client.Responses[randID])
+    // wait for the response, but don't block forever if the third-party
+    // agent never calls back
+    select {
+    case data := <-channel:
+        a.client.RespMtx.Lock()
         delete(a.client.Responses, randID)
+        a.client.RespMtx.Unlock()
+        return data
+    case <-time.After(responseTimeout):
+        logger.Error("Timed out waiting for service agent response")
+        a.client.RespMtx.Lock()
+        delete(a.client.Responses, randID)
+        a.client.RespMtx.Unlock()
+        return nil
     }
-
-    return data
 }
 
 func (a *AgentService) SendAgentBuildRequest(ClientID string, Config map[string]any, Options map[string]any) {

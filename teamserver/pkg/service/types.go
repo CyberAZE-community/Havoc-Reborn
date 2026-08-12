@@ -13,6 +13,9 @@ import (
 type ClientService struct {
 	Conn      *websocket.Conn
 	Mutex     sync.Mutex
+
+	// Responses maps request IDs to response channels; RespMtx guards it
+	RespMtx   sync.Mutex
 	Responses map[string]chan []byte
 }
 

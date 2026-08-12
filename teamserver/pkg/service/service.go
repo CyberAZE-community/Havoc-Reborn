@@ -388,7 +388,11 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			logger.Debug(s.clients)
 			for _, c := range s.clients {
 
-				if channel, ok := c.Responses[RandID]; ok {
+				c.RespMtx.Lock()
+				channel, ok := c.Responses[RandID]
+				c.RespMtx.Unlock()
+
+				if ok {
 
 					if val, ok := response["Body"]["Response"].(string); ok {
 						var (
@@ -400,7 +404,12 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 							logger.Debug("Failed to decode base64: " + err.Error())
 						}
 
-						channel <- resp
+						// never block the handler if nobody is listening
+						select {
+						case channel <- resp:
+						default:
+							logger.Debug("Response channel full or nobody listening, dropping response")
+						}
 					}
 
 					break
@@ -780,8 +789,17 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				return
 			}
 
-			if channel, ok := client.Responses[RequestID]; ok {
-				channel <- Response
+			client.RespMtx.Lock()
+			channel, ok := client.Responses[RequestID]
+			client.RespMtx.Unlock()
+
+			if ok {
+				// never block the handler if nobody is listening
+				select {
+				case channel <- Response:
+				default:
+					logger.Debug("[BodyListenerTransmit] Response channel full or nobody listening, dropping response")
+				}
 			} else {
 				logger.Debug("[BodyListenerTransmit] Failed to retrieve response channel")
 				return
