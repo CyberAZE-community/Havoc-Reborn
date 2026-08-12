@@ -101,6 +101,7 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
 {
     CHAR        Bak[ 1024 ]     = { 0 };
     CHAR        SymName[ 1024 ] = { 0 };
+    SIZE_T      SymLength       = 0;
     PCHAR       SymLibrary      = NULL;
     PCHAR       SymFunction     = NULL;
     HMODULE     hLibrary        = NULL;
@@ -110,7 +111,13 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
 
     *pFuncAddr = NULL;
 
-    MemCopy( Bak, SymbolName, StringLengthA( SymbolName ) + 1 );
+    /* SymbolName comes straight from the (untrusted) BOF symbol table.
+     * bound the copy to our stack buffer */
+    SymLength = StringLengthA( SymbolName );
+    if ( SymLength >= sizeof( Bak ) )
+        SymLength = sizeof( Bak ) - 1;
+
+    MemCopy( Bak, SymbolName, SymLength );
 
     if ( SymBeacon == COFF_PREP_BEACON )
     {
@@ -136,6 +143,9 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
     {
         // this is an import symbol without library: __imp_FUNCNAME
         SymFunction = SymbolName + COFF_PREP_SYMBOL_SIZE;
+
+        if ( StringLengthA( SymFunction ) >= sizeof( SymName ) )
+            goto SymbolNotFound;
 
         StringCopyA( SymName, SymFunction );
 
@@ -183,6 +193,9 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
             PRINTF( "Failed to load library: Lib:[%s] Err:[%d]\n", SymLibrary, NtGetLastError() );
             goto SymbolNotFound;
         }
+
+        if ( StringLengthA( SymFunction ) >= sizeof( SymName ) )
+            goto SymbolNotFound;
 
         StringCopyA( SymName, SymFunction );
 
