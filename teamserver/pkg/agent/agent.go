@@ -672,6 +672,15 @@ func (a *Agent) GetQueuedJobs() []Job {
 	// make sure we return a number of jobs that doesn't exceed DEMON_MAX_RESPONSE_LENGTH
 	for _, job := range a.JobQueue {
 
+		// every job is serialized with a 12 byte header
+		// (CommandID + RequestID + PayloadSize)
+		JobsSize += 12
+
+		// service agents may attach a pre-built payload blob
+		if len(job.Payload) > 0 {
+			JobsSize += len(job.Payload)
+		}
+
 		for i := range job.Data {
 
 			switch job.Data[i].(type) {
@@ -704,7 +713,12 @@ func (a *Agent) GetQueuedJobs() []Job {
 				break
 
 			case string:
+				// serialized as size + data + terminating null-byte
+				// (see BuildPayloadMessage)
 				JobsSize += 4 + len(job.Data[i].(string))
+				if !strings.HasSuffix(job.Data[i].(string), "\x00") {
+					JobsSize += 1
+				}
 				break
 
 			case []byte:
