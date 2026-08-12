@@ -169,6 +169,13 @@ int DemonClass_init( PPyDemonClass self, PyObject *args, PyObject *kwds )
         }
     }
 
+    if ( self->DemonID == NULL )
+    {
+        spdlog::error( "[PyError] no agent with the specified id found" );
+        PyErr_SetString( PyExc_KeyError, "no agent with the specified id found" );
+        return -1;
+    }
+
     return 0;
 }
 
