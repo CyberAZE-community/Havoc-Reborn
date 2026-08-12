@@ -99,8 +99,28 @@ BOOL SmbRecv( PBUFFER Resp )
                 return FALSE;
             }
 
+            /* sanity check the package size before trusting it for an
+             * allocation. packages over the pipe can never be larger
+             * than PIPE_BUFFER_MAX. */
+            if ( PackageSize == 0 || PackageSize > PIPE_BUFFER_MAX )
+            {
+                PRINTF( "Invalid PackageSize: 0x%x\n", PackageSize )
+                Resp->Buffer = NULL;
+                Resp->Length = 0;
+                Instance->Session.Connected = FALSE;
+                return FALSE;
+            }
+
             Resp->Buffer = Instance->Win32.LocalAlloc( LPTR, PackageSize );
             Resp->Length = PackageSize;
+
+            if ( ! Resp->Buffer )
+            {
+                PRINTF( "Failed to allocate 0x%x bytes for the package\n", PackageSize )
+                Resp->Length = 0;
+                Instance->Session.Connected = FALSE;
+                return FALSE;
+            }
 
             if ( ! PipeRead( Instance->Config.Transport.Handle, Resp ) )
             {

@@ -28,7 +28,7 @@ PDOWNLOAD_DATA DownloadGet( DWORD FileID )
 {
     PDOWNLOAD_DATA Download = NULL;
 
-    for ( Download = Instance->Downloads; Download == NULL; Download = Download->Next )
+    for ( Download = Instance->Downloads; Download != NULL; Download = Download->Next )
     {
         if ( Download->FileID == FileID )
             break;

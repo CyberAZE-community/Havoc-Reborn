@@ -263,7 +263,23 @@ VOID PivotPush()
                         if ( Instance->Win32.PeekNamedPipe( TempList->Handle, &Length, sizeof( UINT32 ), NULL, &BytesSize, NULL ) )
                         {
                             Length = __builtin_bswap32( Length ) + sizeof( UINT32 );
+
+                            /* sanity check the length the pivot child sent us.
+                             * packages over the pipe can never be larger
+                             * than PIPE_BUFFER_MAX. */
+                            if ( Length > PIPE_BUFFER_MAX )
+                            {
+                                PRINTF( "Invalid package length from pivot: 0x%x\n", Length )
+                                break;
+                            }
+
                             Output = Instance->Win32.LocalAlloc( LPTR, Length );
+
+                            if ( ! Output )
+                            {
+                                PRINTF( "Failed to allocate 0x%x bytes for pivot output\n", Length )
+                                break;
+                            }
 
                             if ( Instance->Win32.ReadFile( TempList->Handle, Output, Length, &BytesSize, NULL ) )
                             {

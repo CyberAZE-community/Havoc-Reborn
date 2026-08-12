@@ -136,7 +136,15 @@ VOID JobCheckList()
                         JobList->Data = NULL;
 
                         // remove the job entry
-                        JobRemove( JobList->JobID );
+                        {
+                            PJOB_DATA NextJob = JobList->Next;
+                            JobRemove( JobList->JobID );
+
+                            /* JobRemove freed JobList. continue from the
+                             * next job instead of dereferencing it below */
+                            JobList = NextJob;
+                            continue;
+                        }
                     }
                     else
                     {
@@ -366,6 +374,10 @@ BOOL JobKill( DWORD JobID )
             }
 
             JobRemove( JobID );
+
+            /* JobRemove freed JobList. job ids are unique,
+             * stop iterating instead of dereferencing it below */
+            break;
         }
 
         JobList = JobList->Next;
