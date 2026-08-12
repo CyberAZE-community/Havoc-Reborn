@@ -1009,13 +1009,16 @@ func (a *Agent) PortFwdGet(SocketID int) *PortFwd {
 }
 
 func (a *Agent) PortFwdIsOpen(SocketID int) (bool, error) {
-	PortFwd := a.PortFwdGet(SocketID)
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		return PortFwd.Conn != nil, nil
-	} else {
-		return false, fmt.Errorf("rportfwd socket id %x not found", SocketID)
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			return a.PortFwds[i].Conn != nil, nil
+		}
 	}
+
+	return false, fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdOpen(SocketID int) error {
@@ -1024,37 +1027,51 @@ func (a *Agent) PortFwdOpen(SocketID int) error {
 		PortFwd *PortFwd
 	)
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* hold the lock across the lookup and the assign: PortFwdClose may
+	 * otherwise nil/remove the entry in between */
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		if PortFwd.Conn == nil {
-			/* open the connection to the target */
-			PortFwd.Conn, err = net.Dial("tcp", PortFwd.Target)
-			return err
-		} else {
-			return errors.New("rportfwd connection is already open")
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+
+			if PortFwd.Conn == nil {
+				/* open the connection to the target */
+				PortFwd.Conn, err = net.Dial("tcp", PortFwd.Target)
+				return err
+			} else {
+				return errors.New("rportfwd connection is already open")
+			}
 		}
-	} else {
-		return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 	}
+
+	return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdWrite(SocketID int, data []byte) error {
 	var PortFwd *PortFwd
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* hold the lock across the lookup and the write: PortFwdClose may
+	 * otherwise nil the connection in between */
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		/* write to the connection */
-		if PortFwd.Conn != nil {
-			_, err := PortFwd.Conn.Write(data)
-			return err
-		} else {
-			return errors.New("rportfwd connection is empty")
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+
+			/* write to the connection */
+			if PortFwd.Conn != nil {
+				_, err := PortFwd.Conn.Write(data)
+				return err
+			} else {
+				return errors.New("rportfwd connection is empty")
+			}
 		}
-	} else {
-		return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 	}
+
+	return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
@@ -1063,12 +1080,24 @@ func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
 		PortFwd *PortFwd
 	)
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* grab the connection under the lock, then copy without holding it:
+	 * the copy blocks until EOF and PortFwdClose would deadlock. closing
+	 * the connection concurrently just makes the copy return an error. */
+	a.PortFwdsMtx.Lock()
+	var conn net.Conn
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+			conn = a.PortFwds[i].Conn
+			break
+		}
+	}
+	a.PortFwdsMtx.Unlock()
 
 	if PortFwd != nil {
-		if PortFwd.Conn != nil {
+		if conn != nil {
 			/* read from our socket to the data buffer or return error */
-			_, err := io.Copy(&data, PortFwd.Conn)
+			_, err := io.Copy(&data, conn)
 			if err != nil {
 				return nil, err
 			}
