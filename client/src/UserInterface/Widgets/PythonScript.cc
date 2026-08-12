@@ -49,18 +49,21 @@ void HavocNamespace::UserInterface::Widgets::PythonScriptInterpreter::RunCode( Q
 {
     std::string buffer;
     emb::stdout_write_type write = [&] (std::string s) { buffer += s; };
-    emb::set_stdout(write);
 
+    /* set_stdout/reset_stdout touch sys.stdout through the C API, so
+     * they must run while the GIL is held */
     auto GilState = PyGILState_Ensure();
+
+    emb::set_stdout(write);
 
     if ( PyRun_SimpleStringFlags( code.toStdString().c_str(), NULL ) == -1 )
     {
         spdlog::error( "Failed to run script" );
     }
 
-    PyGILState_Release( GilState );
-
     emb::reset_stdout();
+
+    PyGILState_Release( GilState );
 
     if ( buffer.size() > 0 )
         this->PythonScriptOutput->appendPlainText( buffer.c_str() );
