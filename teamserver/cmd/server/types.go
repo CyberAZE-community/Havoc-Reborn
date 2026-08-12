@@ -7,6 +7,7 @@ import (
 	"Havoc/pkg/profile"
 	"Havoc/pkg/service"
 	"Havoc/pkg/webhook"
+	"net"
 	"sync"
 	"time"
 
@@ -30,6 +31,16 @@ type Client struct {
 	Authenticated bool
 	SessionID     string
 	Mutex         sync.Mutex
+}
+
+// LoginIP returns the host part of GlobalIP (RemoteAddr is "ip:port",
+// and every connection gets a fresh source port, which would defeat
+// per-IP login throttling).
+func (c *Client) LoginIP() string {
+	if host, _, err := net.SplitHostPort(c.GlobalIP); err == nil {
+		return host
+	}
+	return c.GlobalIP
 }
 
 type Users struct {

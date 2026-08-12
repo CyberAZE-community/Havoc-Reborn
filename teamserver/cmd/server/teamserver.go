@@ -695,7 +695,9 @@ func (t *Teamserver) handleRequest(id string) {
 			return false
 		}
 
-		if t.LoginThrottled(client.GlobalIP) {
+		LoginIP := client.LoginIP()
+
+		if t.LoginThrottled(LoginIP) {
 			logger.Error("Client [User: " + User + "] login attempt from throttled IP (" + colors.Red(client.GlobalIP) + ")")
 			err := t.SendEvent(id, events.Authenticated(false))
 			if err != nil {
@@ -708,7 +710,7 @@ func (t *Teamserver) handleRequest(id string) {
 		}
 
 		if !t.ClientAuthenticate(pk) {
-			t.LoginFailure(client.GlobalIP)
+			t.LoginFailure(LoginIP)
 			logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
 			err := t.SendEvent(id, events.Authenticated(false))
 			if err != nil {
@@ -734,7 +736,7 @@ func (t *Teamserver) handleRequest(id string) {
 		return
 	}
 
-	t.LoginSuccess(client.GlobalIP)
+	t.LoginSuccess(client.LoginIP())
 
 	err = t.SendEvent(id, events.Authenticated(true))
 	if err != nil {
