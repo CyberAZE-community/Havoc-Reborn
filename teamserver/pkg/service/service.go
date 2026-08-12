@@ -222,11 +222,20 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			)
 
 			if val, ok := response["Body"]["Agent"]; ok && val != nil {
-				Agent = val.(map[string]any)
+				if Agent, ok = val.(map[string]any); !ok {
+					logger.Debug("response BodyAgentTask Agent is not an object")
+					return
+				}
+			} else {
+				logger.Debug("response BodyAgentTask doesn't contain Agent")
+				return
 			}
 
 			if val, ok := response["Body"]["Task"]; ok {
-				Task = val.(string)
+				if Task, ok = val.(string); !ok {
+					logger.Debug("response BodyAgentTask Task is not a string")
+					return
+				}
 			} else {
 				logger.Debug("response BodyAgentTask doesn't contain Task")
 				return
@@ -238,9 +247,16 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 					if Agent["NameID"] == srvAgent.NameID {
 
-						var Command, err = base64.StdEncoding.DecodeString(response["Body"]["Command"].(string))
+						CommandB64, ok := response["Body"]["Command"].(string)
+						if !ok {
+							logger.Debug("response BodyAgentTask Command is not a string")
+							return
+						}
+
+						var Command, err = base64.StdEncoding.DecodeString(CommandB64)
 						if err != nil {
 							logger.Error("Failed to decode command response: " + err.Error())
+							return
 						}
 
 						var TaskJob = agent.Job{
@@ -295,26 +311,37 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				MagicValue    string
 				AgentID       string
 				Header        = agent.Header{}
-				RegisterInfo  = response["Body"]["RegisterInfo"].(map[string]any)
 				AgentInstance *agent.Agent
 				err           error
 			)
 
+			RegisterInfo, ok := response["Body"]["RegisterInfo"].(map[string]any)
+			if !ok {
+				logger.Debug("response BodyAgentRegister RegisterInfo is not an object")
+				return
+			}
+
 			logger.Debug(RegisterInfo)
 
-			if val, ok := response["Body"]["AgentHeader"].(map[string]any)["Size"]; ok {
-				if Size, err = strconv.Atoi(val.(string)); err != nil {
+			AgentHeader, ok := response["Body"]["AgentHeader"].(map[string]any)
+			if !ok {
+				logger.Debug("response BodyAgentRegister AgentHeader is not an object")
+				return
+			}
+
+			if val, ok := AgentHeader["Size"].(string); ok {
+				if Size, err = strconv.Atoi(val); err != nil {
 					Size = 0
 				}
 				Header.Size = Size
 			}
 
-			if val, ok := response["Body"]["AgentHeader"].(map[string]any)["MagicValue"]; ok {
-				MagicValue = val.(string)
+			if val, ok := AgentHeader["MagicValue"].(string); ok {
+				MagicValue = val
 			}
 
-			if val, ok := response["Body"]["AgentHeader"].(map[string]any)["AgentID"]; ok {
-				AgentID = val.(string)
+			if val, ok := AgentHeader["AgentID"].(string); ok {
+				AgentID = val
 			}
 
 			MagicValue64, err := strconv.ParseInt(MagicValue, 16, 32)
@@ -351,8 +378,8 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 			var RandID string
 
-			if val, ok := response["Body"]["RandID"]; ok {
-				RandID = val.(string)
+			if val, ok := response["Body"]["RandID"].(string); ok {
+				RandID = val
 			} else {
 				logger.Debug("RandID not found")
 				return
@@ -363,13 +390,13 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 				if channel, ok := c.Responses[RandID]; ok {
 
-					if val, ok := response["Body"]["Response"]; ok {
+					if val, ok := response["Body"]["Response"].(string); ok {
 						var (
 							resp []byte
 							err  error
 						)
 
-						if resp, err = base64.StdEncoding.DecodeString(val.(string)); err != nil {
+						if resp, err = base64.StdEncoding.DecodeString(val); err != nil {
 							logger.Debug("Failed to decode base64: " + err.Error())
 						}
 
@@ -383,17 +410,31 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			break
 
 		case BodyAgentOutput:
-			var (
-				AgentID  = response["Body"]["AgentID"].(string)
-				Callback = response["Body"]["Callback"].(map[string]any)
-			)
+			AgentID, ok := response["Body"]["AgentID"].(string)
+			if !ok {
+				logger.Debug("response BodyAgentOutput AgentID is not a string")
+				return
+			}
+
+			Callback, ok := response["Body"]["Callback"].(map[string]any)
+			if !ok {
+				logger.Debug("response BodyAgentOutput Callback is not an object")
+				return
+			}
 
 			if Callback["MiscType"] == "download" {
 
-				var (
-					FileName   = Callback["FileName"].(string)
-					ContentB64 = Callback["Content"].(string)
-				)
+				FileName, ok := Callback["FileName"].(string)
+				if !ok {
+					logger.Debug("response BodyAgentOutput FileName is not a string")
+					return
+				}
+
+				ContentB64, ok := Callback["Content"].(string)
+				if !ok {
+					logger.Debug("response BodyAgentOutput Content is not a string")
+					return
+				}
 
 				if FileContent, err := base64.StdEncoding.DecodeString(ContentB64); err == nil {
 
@@ -426,20 +467,37 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			break
 
 		case BodyAgentBuild:
-			var (
-				ClientID = response["Body"]["ClientID"].(string)
-				Message  = response["Body"]["Message"].(map[string]any)
-			)
+			ClientID, ok := response["Body"]["ClientID"].(string)
+			if !ok {
+				logger.Debug("response BodyAgentBuild ClientID is not a string")
+				return
+			}
+
+			Message, ok := response["Body"]["Message"].(map[string]any)
+			if !ok {
+				logger.Debug("response BodyAgentBuild Message is not an object")
+				return
+			}
 
 			if len(ClientID) > 0 {
 
 				if _, ok := Message["FileName"]; ok {
 					var (
-						FileName   = Message["FileName"].(string)
-						PayloadMsg = Message["Payload"].(string)
-						Payload    []byte
-						err        error
+						Payload []byte
+						err     error
 					)
+
+					FileName, ok := Message["FileName"].(string)
+					if !ok {
+						logger.Debug("response BodyAgentBuild FileName is not a string")
+						return
+					}
+
+					PayloadMsg, ok := Message["Payload"].(string)
+					if !ok {
+						logger.Debug("response BodyAgentBuild Payload is not a string")
+						return
+					}
 
 					Payload, err = base64.StdEncoding.DecodeString(PayloadMsg)
 					if err != nil {
@@ -457,10 +515,17 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 					}
 
 				} else {
-					var (
-						MessageType = Message["Type"].(string)
-						MessageText = Message["Message"].(string)
-					)
+					MessageType, ok := Message["Type"].(string)
+					if !ok {
+						logger.Debug("response BodyAgentBuild Type is not a string")
+						return
+					}
+
+					MessageText, ok := Message["Message"].(string)
+					if !ok {
+						logger.Debug("response BodyAgentBuild Message is not a string")
+						return
+					}
 
 					err := s.Teamserver.SendEvent(ClientID, events.Gate.SendConsoleMessage(MessageType, MessageText))
 					if err != nil {
@@ -494,26 +559,45 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 					Listener        map[string]any
 				)
 
-				Listener = val.(map[string]any)
+				if Listener, ok = val.(map[string]any); !ok {
+					logger.Debug("response BodyListenerAdd Listener is not an object")
+					return
+				}
 
 				// retrieve the listener name
 				if val, ok = Listener["Name"]; ok {
-					listenerService.Name = val.(string)
+					if listenerService.Name, ok = val.(string); !ok {
+						logger.Debug("response BodyListenerAdd Name is not a string")
+						return
+					}
 				} else {
 					return
 				}
 
 				// retrieve the listener agent allowed
 				if val, ok = Listener["Agent"]; ok {
-					listenerService.Agent = val.(string)
+					if listenerService.Agent, ok = val.(string); !ok {
+						logger.Debug("response BodyListenerAdd Agent is not a string")
+						return
+					}
 				} else {
 					return
 				}
 
 				// retrieve the listener agent allowed
 				if val, ok = Listener["Items"]; ok {
-					for _, a := range val.([]any) {
-						listenerService.Items = append(listenerService.Items, a.(map[string]any))
+					items, ok := val.([]any)
+					if !ok {
+						logger.Debug("response BodyListenerAdd Items is not an array")
+						return
+					}
+					for _, a := range items {
+						item, ok := a.(map[string]any)
+						if !ok {
+							logger.Debug("response BodyListenerAdd Items entry is not an object")
+							return
+						}
+						listenerService.Items = append(listenerService.Items, item)
 					}
 				} else {
 					return
@@ -539,7 +623,10 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 					Listener = map[string]any{}
 				)
 
-				Data = val.(map[string]any)
+				if Data, ok = val.(map[string]any); !ok {
+					logger.DebugError("BodyListenerStart Listener is not an object")
+					return
+				}
 
 				// retrieve the listener name
 				if val, ok = Data["Name"]; ok {
@@ -626,24 +713,24 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			)
 
 			// retrieve the request id
-			if val, ok := response["Head"]["RequestID"]; ok {
-				Request["Head"]["RequestID"] = val.(string)
+			if val, ok := response["Head"]["RequestID"].(string); ok {
+				Request["Head"]["RequestID"] = val
 			} else {
 				logger.Debug("Error: Head ExternalC2 RequestID not provided")
 				return
 			}
 
 			// retrieve the externalc2 listener name
-			if val, ok := response["Body"]["Name"]; ok {
-				ExternalName = val.(string)
+			if val, ok := response["Body"]["Name"].(string); ok {
+				ExternalName = val
 			} else {
 				logger.Debug("Error: BodyListenerExC2 ExternalC2 Name not provided")
 				return
 			}
 
 			// retrieve the externalc2 listener endpoint
-			if val, ok := response["Body"]["Endpoint"]; ok {
-				ExternalEndpoint = val.(string)
+			if val, ok := response["Body"]["Endpoint"].(string); ok {
+				ExternalEndpoint = val
 			} else {
 				logger.Debug("Error: BodyListenerExC2 ExternalC2 Endpoint not provided")
 				return
@@ -675,14 +762,20 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				err       error
 			)
 
-			if val, ok := response["Head"]["RequestID"]; ok {
-				RequestID = val.(string)
+			if val, ok := response["Head"]["RequestID"].(string); ok {
+				RequestID = val
 			} else {
 				logger.Debug("[BodyListenerTransmit] Failed to retrieve Head RequestID")
 				return
 			}
 
-			if Response, err = base64.StdEncoding.DecodeString(response["Body"]["Request"].(string)); err != nil {
+			RequestB64, ok := response["Body"]["Request"].(string)
+			if !ok {
+				logger.Debug("[BodyListenerTransmit] Request is not a string")
+				return
+			}
+
+			if Response, err = base64.StdEncoding.DecodeString(RequestB64); err != nil {
 				logger.Debug("[BodyListenerTransmit] Failed to decode request response: " + err.Error())
 				return
 			}

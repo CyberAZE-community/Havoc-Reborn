@@ -228,44 +228,44 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 	agent.NameID = fmt.Sprintf("%08x", Header.AgentID)
 	agent.Info.MagicValue = Header.MagicValue
 
-	if val, ok := RegisterInfo["Hostname"]; ok {
-		agent.Info.Hostname = val.(string)
+	if val, ok := RegisterInfo["Hostname"].(string); ok {
+		agent.Info.Hostname = val
 	}
 
-	if val, ok := RegisterInfo["Username"]; ok {
-		agent.Info.Username = val.(string)
+	if val, ok := RegisterInfo["Username"].(string); ok {
+		agent.Info.Username = val
 	}
 
-	if val, ok := RegisterInfo["Domain"]; ok {
-		agent.Info.DomainName = val.(string)
+	if val, ok := RegisterInfo["Domain"].(string); ok {
+		agent.Info.DomainName = val
 	}
 
-	if val, ok := RegisterInfo["InternalIP"]; ok {
-		agent.Info.InternalIP = val.(string)
+	if val, ok := RegisterInfo["InternalIP"].(string); ok {
+		agent.Info.InternalIP = val
 	}
 
-	if val, ok := RegisterInfo["Process Path"]; ok {
-		agent.Info.ProcessPath = val.(string)
+	if val, ok := RegisterInfo["Process Path"].(string); ok {
+		agent.Info.ProcessPath = val
 	}
 
-	if val, ok := RegisterInfo["Process Name"]; ok {
-		agent.Info.ProcessName = val.(string)
+	if val, ok := RegisterInfo["Process Name"].(string); ok {
+		agent.Info.ProcessName = val
 	}
 
-	if val, ok := RegisterInfo["Process Arch"]; ok {
-		agent.Info.ProcessArch = val.(string)
+	if val, ok := RegisterInfo["Process Arch"].(string); ok {
+		agent.Info.ProcessArch = val
 	}
 
-	if val, ok := RegisterInfo["Process ID"]; ok {
-		agent.Info.ProcessPID, err = strconv.Atoi(val.(string))
+	if val, ok := RegisterInfo["Process ID"].(string); ok {
+		agent.Info.ProcessPID, err = strconv.Atoi(val)
 		if err != nil {
 			logger.DebugError("Couldn't parse ProcessID integer from string: " + err.Error())
 			agent.Info.ProcessPID = 0
 		}
 	}
 
-	if val, ok := RegisterInfo["Process Parent ID"]; ok {
-		agent.Info.ProcessPPID, err = strconv.Atoi(val.(string))
+	if val, ok := RegisterInfo["Process Parent ID"].(string); ok {
+		agent.Info.ProcessPPID, err = strconv.Atoi(val)
 		if err != nil {
 			logger.DebugError("Couldn't parse ProcessPPID integer from string: " + err.Error())
 			agent.Info.ProcessPPID = 0
@@ -287,9 +287,9 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 	}
 
 	// Updated OS Version handling
-	if val, ok := RegisterInfo["OS Version"]; ok {
+	if val, ok := RegisterInfo["OS Version"].(string); ok {
 		// Assuming val is a string representing the OS version, split it by '.' to get the version parts
-		versionParts := strings.Split(val.(string), ".")
+		versionParts := strings.Split(val, ".")
 		OsVersion := make([]int, len(versionParts))
 		for i, part := range versionParts {
 			OsVersion[i], _ = strconv.Atoi(part)
@@ -297,12 +297,12 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 		agent.Info.OSVersion = getWindowsVersionString(OsVersion)
 	}
 
-	if val, ok := RegisterInfo["OS Build"]; ok {
-		agent.Info.OSBuild = val.(string)
+	if val, ok := RegisterInfo["OS Build"].(string); ok {
+		agent.Info.OSBuild = val
 	}
 
-	if val, ok := RegisterInfo["OS Arch"]; ok {
-		agent.Info.OSArch = val.(string)
+	if val, ok := RegisterInfo["OS Arch"].(string); ok {
+		agent.Info.OSArch = val
 	}
 
 	if val, ok := RegisterInfo["SleepDelay"]; ok {
