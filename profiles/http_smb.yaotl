@@ -11,11 +11,11 @@ Teamserver {
 
 Operators {
     user "5pider" {
-        Password = "password1234"
+        Password = "CHANGE-ME-OPERATOR-PASSWORD"
     }
 
     user "Neo" {
-        Password = "password1234"
+        Password = "CHANGE-ME-OPERATOR-PASSWORD"
     }
 }
 
@@ -71,7 +71,7 @@ Listeners {
 # this is optional. if you dont use it you can remove it.
 Service {
     Endpoint = "service-endpoint"
-    Password = "service-password"
+    Password = "CHANGE-ME-SERVICE-PASSWORD"
 }
 
 Demon {

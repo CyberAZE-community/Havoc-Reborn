@@ -772,6 +772,39 @@ func (t *Teamserver) SetProfile(path string) {
 		logger.Error("Profile error:", colors.Red(err))
 		os.Exit(1)
 	}
+
+	t.warnWeakCredentials()
+}
+
+// warnWeakCredentials loudly warns at startup when operator or service
+// passwords look like shipped defaults/placeholders or are empty.
+func (t *Teamserver) warnWeakCredentials() {
+	if t.Profile == nil {
+		return
+	}
+
+	var weak = func(password string) bool {
+		if len(password) < 8 {
+			return true
+		}
+		lower := strings.ToLower(password)
+		return strings.HasPrefix(lower, "change-me") ||
+			strings.Contains(lower, "password") ||
+			lower == "password1234" ||
+			lower == "service-password"
+	}
+
+	if t.Profile.Config.Operators != nil {
+		for _, user := range t.Profile.Config.Operators.Users {
+			if weak(user.Password) {
+				logger.Warn(fmt.Sprintf("Operator \"%v\" uses a default, placeholder or weak-looking password - change it in the profile", colors.Red(user.Name)))
+			}
+		}
+	}
+
+	if t.Profile.Config.Service != nil && weak(t.Profile.Config.Service.Password) {
+		logger.Warn("The Service API uses a default, placeholder or weak-looking password - change it in the profile")
+	}
 }
 
 func (t *Teamserver) ClientAuthenticate(pk packager.Package) bool {
