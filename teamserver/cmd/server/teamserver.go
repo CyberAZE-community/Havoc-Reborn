@@ -777,6 +777,7 @@ func (t *Teamserver) EventListenerError(ListenerName string, Error error) {
 	t.EventBroadcast("", pk)
 
 	// also remove the listener from the init packages.
+	t.EventsMutex.Lock()
 	for EventID := range t.EventsList {
 		if t.EventsList[EventID].Head.Event == packager.Type.Listener.Type {
 			if t.EventsList[EventID].Body.SubEvent == packager.Type.Listener.Add {
@@ -789,6 +790,7 @@ func (t *Teamserver) EventListenerError(ListenerName string, Error error) {
 			}
 		}
 	}
+	t.EventsMutex.Unlock()
 }
 
 func (t *Teamserver) SendEvent(id string, pk packager.Package) error {
@@ -852,6 +854,20 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 	}
 
 	if event.Head.OneTime != "true" {
+		t.EventsMutex.Lock()
+		defer t.EventsMutex.Unlock()
+
+		// drop the oldest events once the history cap is reached so a
+		// long-running server doesn't grow the list (and the replay to
+		// new clients) without bound
+		max := t.EventsListMax
+		if max <= 0 {
+			max = defaultEventsListMax
+		}
+		for len(t.EventsList) >= max {
+			t.EventsList = t.EventsList[1:]
+		}
+
 		t.EventsList = append(t.EventsList, event)
 		return t.EventsList
 	}
@@ -860,13 +876,27 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 }
 
 func (t *Teamserver) EventRemove(EventID int) []packager.Package {
+	t.EventsMutex.Lock()
+	defer t.EventsMutex.Unlock()
+
+	if EventID < 0 || EventID >= len(t.EventsList) {
+		return t.EventsList
+	}
+
 	t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
 
 	return t.EventsList
 }
 
 func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {
-	for _, Package := range t.EventsList {
+	// replay the stored event history to the new client; work on a copy
+	// so concurrent appends/removals don't race the iteration
+	t.EventsMutex.RLock()
+	EventsList := make([]packager.Package, len(t.EventsList))
+	copy(EventsList, t.EventsList)
+	t.EventsMutex.RUnlock()
+
+	for _, Package := range EventsList {
 		err := t.SendEvent(ClientID, Package)
 		if err != nil {
 			logger.Error("error while sending info to client("+ClientID+"): ", err)

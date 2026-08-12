@@ -70,12 +70,22 @@ type Endpoint struct {
 	Function func(ctx *gin.Context)
 }
 
+// defaultEventsListMax is the default cap for the in-memory event history
+const defaultEventsListMax = 10000
+
 type Teamserver struct {
 	Flags      TeamserverFlags
 	Profile    *profile.Profile
 	Clients    sync.Map // map[string]*Client
 	Users      []Users
 	EventsList []packager.Package
+
+	// EventsMutex guards EventsList append/remove/iterate
+	EventsMutex sync.RWMutex
+
+	// EventsListMax bounds the in-memory event history replayed to new
+	// clients; oldest events are dropped once the cap is reached
+	EventsListMax int
 	Service    *service.Service
 	WebHooks   *webhook.WebHook
 	DB         *db.DB
