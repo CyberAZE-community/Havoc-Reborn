@@ -8,7 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- CI now skips runs when only non-code files change (`paths-ignore` for markdown, `LICENSE`, `.gitignore`, `assets/`, `profiles/`, `data/`).
 - The per-agent SOCKS5 proxy now binds to `127.0.0.1` only instead of `0.0.0.0` (it was an unauthenticated open relay). Use port forwarding if remote access to the proxy port is needed. (#45)
 - Service API: agents registered through the Service API are now bound to the service connection that registered them — tasking an agent or injecting console output for an agent owned by another connection (including operator-registered Demons) is rejected. Third-party agents that relied on cross-client tasking will need to register and task their own agents. (#52)
 - The operator event history kept in memory (and replayed to every newly connected client) is now capped at 10000 entries; the oldest events are dropped beyond the cap. (#48)
@@ -17,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- GitHub Actions CI (`.github/workflows/ci.yml`); verification is local builds per `AGENTS.md`.
 - `RELEASE.md` (upstream historical changelog superseded by `CHANGELOG.md`) and `exception_mac.hpp` (a stray toml11 `exception.hpp` patch left at the repo root by an upstream merge; unreferenced by any build).
 
 ### Fixed
