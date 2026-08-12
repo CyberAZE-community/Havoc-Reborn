@@ -55,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Demon: the sleep-obfuscation ROP chain is now checked for NULL `Rip` entries (e.g. after a jmp-gadget lookup miss) and aborts into the default `WaitForSingleObjectEx` sleep instead of crashing the timer thread. (#88)
 - Demon: length-prefixed strings from the packet buffer were used as NUL-terminated C strings; `ParserGetString`/`ParserGetWString` now verify termination within the length prefix (the teamserver always terminates, so legitimate traffic is unaffected). (#89)
 - Demon: the SMB pivot named pipe granted full access to the Everyone SID with only the 32-bit DemonId as authentication; the DACL is now restricted to the process owner (pivot children run as the same user, wire protocol unchanged). (#90)
+- Client: the Python API `AllocMov` macro allocated `QString::size()+1` (UTF-16 code units) and then `strcpy`'d the UTF-8 text, overflowing the heap buffer for any non-ASCII value; it now allocates `strlen(src)+1`. `DemonClass_dealloc`/`AgentClass_dealloc` also `Py_XDECREF`'d plain `char*` members (type confusion); they are now `free`'d. (#39)
 
 ## [0.7.2] - 2026-08-07
 

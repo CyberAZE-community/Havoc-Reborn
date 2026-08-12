@@ -68,7 +68,7 @@ PyTypeObject PyAgentClass_Type = {
 
 void AgentClass_dealloc( PPyAgentClass self )
 {
-    Py_XDECREF( self->AgentID );
+    free( self->AgentID );
 
     Py_TYPE( self )->tp_free( ( PyObject* ) self );
 }

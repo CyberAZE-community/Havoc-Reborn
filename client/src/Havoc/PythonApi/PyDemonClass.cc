@@ -92,26 +92,25 @@ PyTypeObject PyDemonClass_Type = {
 #define AllocMov( des, src, size )                          \
     if ( size > 0 )                                         \
     {                                                       \
-        des = ( char* ) malloc( ( size + 1 ) * sizeof( char ) ); \
-        memset( des, 0, size + 1 );                         \
+        des = ( char* ) malloc( std::strlen( src ) + 1 );   \
         std::strcpy( des, src );                            \
     }
 
 void DemonClass_dealloc( PPyDemonClass self )
 {
-    Py_XDECREF( self->Listener );
-    Py_XDECREF( self->DemonID );
-    Py_XDECREF( self->ExternalIP );
-    Py_XDECREF( self->InternalIP );
-    Py_XDECREF( self->User );
-    Py_XDECREF( self->Computer );
-    Py_XDECREF( self->Domain );
-    Py_XDECREF( self->OS );
-    Py_XDECREF( self->OSBuild );
-    Py_XDECREF( self->OSArch );
-    Py_XDECREF( self->ProcessName );
-    Py_XDECREF( self->ProcessID );
-    Py_XDECREF( self->ProcessArch );
+    free( self->Listener );
+    free( self->DemonID );
+    free( self->ExternalIP );
+    free( self->InternalIP );
+    free( self->User );
+    free( self->Computer );
+    free( self->Domain );
+    free( self->OS );
+    free( self->OSBuild );
+    free( self->OSArch );
+    free( self->ProcessName );
+    free( self->ProcessID );
+    free( self->ProcessArch );
 
     Py_TYPE( self )->tp_free( ( PyObject* ) self );
 }
