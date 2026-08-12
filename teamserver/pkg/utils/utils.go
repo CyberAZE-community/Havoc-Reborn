@@ -1,6 +1,7 @@
 package utils
 
 import (
+    crand "crypto/rand"
     "encoding/base64"
     "encoding/binary"
     "unicode/utf16"
@@ -32,34 +33,45 @@ func UTF16BytesToString(b []byte) string {
 }
 
 func GenerateID(n int) string {
-    var src = rand.NewSource(time.Now().UnixNano())
     b := make([]byte, n)
-    // A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
-    for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
-        if remain == 0 {
-            cache, remain = src.Int63(), letterIdxMax
+    rnd := make([]byte, n)
+    if _, err := crand.Read(rnd); err != nil {
+        // crypto/rand should never fail; fall back to a time-seeded source
+        var src = rand.NewSource(time.Now().UnixNano())
+        for i := range b {
+            b[i] = letterBytes[src.Int63()&letterIdxMask]
         }
-        if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
-            b[i] = letterBytes[idx]
-            i--
-        }
-        cache >>= letterIdxBits
-        remain--
+        return string(b)
+    }
+    for i := range b {
+        b[i] = letterBytes[rnd[i]&letterIdxMask]
     }
 
     return string(b)
 }
 
 func GenerateString(min int, max int) string {
-    rand.Seed(time.Now().UnixNano())
-    length := min + rand.Intn(max - min + 1)
     var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    length := min + cryptoIntn(max - min + 1)
     b := make([]rune, length)
     for i := range b {
-        b[i] = letterRunes[rand.Intn(len(letterRunes))]
+        b[i] = letterRunes[cryptoIntn(len(letterRunes))]
     }
 
     return string(b)
+}
+
+// cryptoIntn returns a uniform random int in [0, max) using crypto/rand,
+// falling back to a time-seeded math/rand source if crypto/rand fails.
+func cryptoIntn(max int) int {
+    if max <= 0 {
+        return 0
+    }
+    var buf [8]byte
+    if _, err := crand.Read(buf[:]); err != nil {
+        return rand.New(rand.NewSource(time.Now().UnixNano())).Intn(max)
+    }
+    return int(binary.BigEndian.Uint64(buf[:]) % uint64(max))
 }
 
 func EncodeCommand(x string) string {
