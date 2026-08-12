@@ -220,12 +220,13 @@ func (b *Builder) Build() bool {
 		AsmObj         string
 	)
 
-	b.CompileDir = "/tmp/" + utils.GenerateID(10) + "/"
-	err := os.Mkdir(b.CompileDir, 0700)
+	CompileDir, err := os.MkdirTemp("", "havoc-build-")
 	if err != nil {
 		logger.Error("Failed to create compile directory: " + err.Error())
 		return false
 	}
+	// MkdirTemp creates the directory with 0700 and an unpredictable name
+	b.CompileDir = CompileDir + "/"
 
 	if b.outputPath == "" && b.FileExtenstion != "" {
 		b.SetOutputPath(b.CompileDir + PayloadName + b.FileExtenstion)
