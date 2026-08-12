@@ -11,10 +11,23 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
     auto Server  = "wss://" + Teamserver->Host + ":" + this->Teamserver->Port + "/havoc/";
     auto SslConf = Socket->sslConfiguration();
 
-    /* ignore annoying SSL errors */
-    SslConf.setPeerVerifyMode( QSslSocket::VerifyNone );
-    Socket->setSslConfiguration( SslConf );
-    Socket->ignoreSslErrors();
+    /* verify the teamserver certificate by default; the connect dialog
+     * offers an opt-in "Ignore SSL errors" toggle for the self-signed
+     * certificates the teamserver ships with */
+    if ( Teamserver->IgnoreSSLErrors )
+    {
+        SslConf.setPeerVerifyMode( QSslSocket::VerifyNone );
+        Socket->setSslConfiguration( SslConf );
+
+        QObject::connect( Socket, &QWebSocket::sslErrors, this, [&]( const QList<QSslError>& ) {
+            Socket->ignoreSslErrors();
+        } );
+    }
+    else
+    {
+        SslConf.setPeerVerifyMode( QSslSocket::VerifyPeer );
+        Socket->setSslConfiguration( SslConf );
+    }
 
     QObject::connect( Socket, &QWebSocket::binaryMessageReceived, this, [&]( const QByteArray& Message )
     {

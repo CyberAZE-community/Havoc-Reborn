@@ -252,6 +252,7 @@ namespace HavocNamespace
             QString Port;
             QString User;
             QString Password;
+            bool    IgnoreSSLErrors = false;
 
             std::vector<ListenerItem>      Listeners;
             std::vector<json>              RegisteredListeners;

@@ -6,6 +6,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
+#include <QCheckBox>
 #include <QList>
 
 using namespace std;
@@ -25,6 +26,7 @@ private:
     QLineEdit*      lineEdit_User;
     QLineEdit*      lineEdit_Password;
     QLineEdit*      lineEdit_Host;
+    QCheckBox*      checkBox_IgnoreSsl;
     QLineEdit*      lineEdit_Name;
     QLineEdit*      lineEdit_Port;
 

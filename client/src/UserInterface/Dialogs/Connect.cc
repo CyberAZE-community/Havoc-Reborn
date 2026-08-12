@@ -13,9 +13,9 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
     if ( Form->objectName().isEmpty() )
         Form->setObjectName( QString::fromUtf8( "Form" ) );
 
-    Form->resize( 500, 260 );
-    Form->setMinimumSize( QSize( 500, 260 ) );
-    Form->setMaximumSize( QSize( 500, 260 ) );
+    Form->resize( 500, 290 );
+    Form->setMinimumSize( QSize( 500, 290 ) );
+    Form->setMaximumSize( QSize( 500, 290 ) );
 
     Form->setStyleSheet( FileRead( ":/stylesheets/Dialogs/Connect" ) );
 
@@ -70,6 +70,11 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
 
     horizontalSpacer = new QSpacerItem( 40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum );
 
+    checkBox_IgnoreSsl = new QCheckBox( Form );
+    checkBox_IgnoreSsl->setObjectName( QString::fromUtf8( "checkBox_IgnoreSsl" ) );
+    checkBox_IgnoreSsl->setText( "Ignore SSL errors (insecure, needed for self-signed certificates)" );
+    checkBox_IgnoreSsl->setChecked( false );
+
     listContextMenu = new QMenu( this );
     listContextMenu->addAction( "Remove", this, &Connect::itemRemove );
     listContextMenu->addAction( "Clear",  this, &Connect::itemsClear );
@@ -114,6 +119,8 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
 
     gridLayout->addWidget( label_Password,   6, 1, 1, 1 );
     gridLayout->addWidget( lineEdit_Password,6, 2, 1, 1 );
+
+    gridLayout->addWidget( checkBox_IgnoreSsl, 7, 2, 1, 1 );
 
     gridLayout->addWidget( ButtonConnect,    8, 2, 1, 1 );
 
@@ -192,6 +199,7 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
     ConnectionInfo->Port     = lineEdit_Port->text();
     ConnectionInfo->User     = lineEdit_User->text();
     ConnectionInfo->Password = lineEdit_Password->text();
+    ConnectionInfo->IgnoreSSLErrors = checkBox_IgnoreSsl->isChecked();
 
     ProfileName = ConnectionInfo->Name.toStdString();
 
