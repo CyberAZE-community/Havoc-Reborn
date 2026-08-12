@@ -2,6 +2,7 @@
 #include <Havoc/Havoc.hpp>
 #include <UserInterface/HavocUI.hpp>
 #include <UserInterface/Dialogs/Connect.hpp>
+#include <UserInterface/Widgets/TeamserverTabSession.h>
 #include <QCryptographicHash>
 #include <QMap>
 #include <QBuffer>
@@ -64,6 +65,30 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
         Socket->close();
 
+        /* tear down the stale teamserver tab; a successful reconnect
+         * rebuilds it when the init package arrives */
+        if ( HavocX::HavocUserInterface != nullptr && HavocX::Teamserver.TabSession != nullptr )
+        {
+            auto TabWidget = HavocX::HavocUserInterface->TeamserverTabWidget;
+            auto Page      = HavocX::Teamserver.TabSession->PageWidget;
+            auto Index     = TabWidget->indexOf( Page );
+
+            if ( Index != -1 )
+                TabWidget->removeTab( Index );
+
+            HavocX::Teamserver.TabSession->deleteLater();
+            HavocX::Teamserver.TabSession = nullptr;
+
+            Page->deleteLater();
+        }
+
+        /* this Connector is dead once the slot returns; clear the global
+         * so nothing touches a dangling pointer before reconnect */
+        if ( HavocX::Connector == this )
+            HavocX::Connector = nullptr;
+
+        this->deleteLater();
+
         /* graceful handling: return to the connect dialog instead of
          * killing the whole client */
         auto Connect = new UserInterface::Dialogs::Connect;
@@ -73,7 +98,7 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
         Connect->setupUi( new QDialog );
 
         /* StartDialog installs the new Connector and global teamserver
-         * state itself on success; on cancel the old state is kept */
+         * state itself on success; on cancel the client stays disconnected */
         Connect->StartDialog( true );
 
         delete Connect;

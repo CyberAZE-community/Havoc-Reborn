@@ -179,7 +179,7 @@ func (t *Teamserver) ListenerRemove(Name string) ([]*Listener, []packager.Packag
 			err := t.DB.ListenerRemove(Name)
 			if err != nil {
 				logger.Error("Failed to remove listener: ", Name)
-				return t.Listeners, t.EventsList
+				return t.Listeners, t.eventsListCopy()
 			}
 
 			t.Listeners = append(t.Listeners[:i], t.Listeners[i+1:]...)
@@ -199,12 +199,12 @@ func (t *Teamserver) ListenerRemove(Name string) ([]*Listener, []packager.Packag
 			}
 			t.EventsMutex.Unlock()
 
-			return t.Listeners, t.EventsList
+			return t.Listeners, t.eventsListCopy()
 		}
 	}
 	logger.Error("Listener not found: ", Name)
 
-	return t.Listeners, t.EventsList
+	return t.Listeners, t.eventsListCopy()
 }
 
 func (t *Teamserver) ListenerEdit(Type int, Config any) {

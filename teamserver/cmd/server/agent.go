@@ -108,10 +108,15 @@ func (t *Teamserver) AgentHasDied(Agent *agent.Agent) bool {
 func (t *Teamserver) AgentAdd(Agent *agent.Agent) []*agent.Agent {
 	if Agent != nil {
 		if t.WebHooks != nil {
+			// snapshot the agent synchronously: ToMap reflects over the
+			// agent without holding its per-agent lock, so it must not
+			// run concurrently with later mutations of the agent
+			AgentMap := Agent.ToMap()
+
 			// send the webhook asynchronously: a slow or dead endpoint
 			// must not block agent registration
 			go func() {
-				if err := t.WebHooks.NewAgent(Agent.ToMap()); err != nil {
+				if err := t.WebHooks.NewAgent(AgentMap); err != nil {
 					logger.Error("Failed to send new-agent webhook: " + err.Error())
 				}
 			}()

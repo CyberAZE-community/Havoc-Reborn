@@ -970,11 +970,23 @@ func (t *Teamserver) RemoveClient(ClientID string) {
 	}
 }
 
+// eventsListCopy returns a copy of the event history under the read lock
+// so callers can iterate it without racing concurrent appends/removals
+func (t *Teamserver) eventsListCopy() []packager.Package {
+	t.EventsMutex.RLock()
+	defer t.EventsMutex.RUnlock()
+
+	EventsList := make([]packager.Package, len(t.EventsList))
+	copy(EventsList, t.EventsList)
+
+	return EventsList
+}
+
 func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 
 	// some sanity check
 	if event.Head.Event == 0 {
-		return t.EventsList
+		return t.eventsListCopy()
 	}
 
 	if event.Head.OneTime != "true" {
@@ -993,7 +1005,11 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 		}
 
 		t.EventsList = append(t.EventsList, event)
-		return t.EventsList
+
+		EventsList := make([]packager.Package, len(t.EventsList))
+		copy(EventsList, t.EventsList)
+
+		return EventsList
 	}
 
 	return nil
@@ -1003,22 +1019,20 @@ func (t *Teamserver) EventRemove(EventID int) []packager.Package {
 	t.EventsMutex.Lock()
 	defer t.EventsMutex.Unlock()
 
-	if EventID < 0 || EventID >= len(t.EventsList) {
-		return t.EventsList
+	if EventID >= 0 && EventID < len(t.EventsList) {
+		t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
 	}
 
-	t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
+	EventsList := make([]packager.Package, len(t.EventsList))
+	copy(EventsList, t.EventsList)
 
-	return t.EventsList
+	return EventsList
 }
 
 func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {
 	// replay the stored event history to the new client; work on a copy
 	// so concurrent appends/removals don't race the iteration
-	t.EventsMutex.RLock()
-	EventsList := make([]packager.Package, len(t.EventsList))
-	copy(EventsList, t.EventsList)
-	t.EventsMutex.RUnlock()
+	EventsList := t.eventsListCopy()
 
 	for _, Package := range EventsList {
 		err := t.SendEvent(ClientID, Package)

@@ -23,8 +23,10 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     query.bindValue( ":Host",        connection.Host.toStdString().c_str() );
     query.bindValue( ":Port",        connection.Port.toStdString().c_str() );
     query.bindValue( ":User",        connection.User.toStdString().c_str() );
+    /* always store the "sha3:" prefixed form; listTeamservers() relies on
+     * the prefix to distinguish hashed rows from legacy plaintext */
     query.bindValue( ":Password",    connection.PasswordIsHashed ?
-                                     connection.Password.toStdString().c_str() :
+                                     ( "sha3:" + connection.Password ).toStdString().c_str() :
                                      HashPassword( connection.Password ).toStdString().c_str() );
 
     /* print error */
