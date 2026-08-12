@@ -70,13 +70,14 @@ using HavocNamespace::UserInterface::Widgets::ScriptManager;
 
 Util::Packager::PPackage Packager::DecodePackage( const QString& Package )
 {
-    auto FullPackage    = new Util::Packager::Package;
+    auto FullPackage    = new Util::Packager::Package();
     auto PackageObject  = QJsonObject();
     auto JsonData       = QJsonDocument::fromJson( Package.toUtf8() );
 
     if ( JsonData.isEmpty() )
     {
         spdlog::critical( "Invalid json" );
+        delete FullPackage;
         return nullptr;
     }
 

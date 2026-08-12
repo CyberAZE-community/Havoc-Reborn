@@ -60,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: agent/teamserver-controlled strings (session metadata, listener names and errors, chat user/text, event-viewer user names) were inserted into HTML-rendered widgets unescaped, allowing HTML injection; they are now escaped with `toHtmlEscaped()` at the insertion points. Chat messages are now escaped at display time instead of at send time. (#54)
 - Client: every `new Util::Packager::Package` passed to `Connector::SendPackage` was leaked (7 call sites); they are now deleted after the send. Python callback invocations leaked the `Py_BuildValue` argument objects and the call results; they are now `Py_XDECREF`'d. (#55)
 - Client: `havoc.Demon( DemonID )` with an unknown ID returned a successfully-constructed object with all-NULL string members (later `QString::compare( NULL )` UB); it now raises `KeyError` and fails construction. (#65)
+- Client: `Packager::DecodePackage` leaked the allocated `Package` on malformed JSON and returned it with uninitialized scalar members; it is now value-initialized and freed on the error path. (#76)
 
 ## [0.7.2] - 2026-08-07
 
