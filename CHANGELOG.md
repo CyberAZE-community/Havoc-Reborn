@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - CI now skips runs when only non-code files change (`paths-ignore` for markdown, `LICENSE`, `.gitignore`, `assets/`, `profiles/`, `data/`).
+- The per-agent SOCKS5 proxy now binds to `127.0.0.1` only instead of `0.0.0.0` (it was an unauthenticated open relay). Use port forwarding if remote access to the proxy port is needed. (#45)
+- Service API: agents registered through the Service API are now bound to the service connection that registered them — tasking an agent or injecting console output for an agent owned by another connection (including operator-registered Demons) is rejected. Third-party agents that relied on cross-client tasking will need to register and task their own agents. (#52)
+- The operator event history kept in memory (and replayed to every newly connected client) is now capped at 10000 entries; the oldest events are dropped beyond the cap. (#48)
+- Shipped profiles no longer contain the well-known default credentials `password1234` / `service-password`; they use obvious `CHANGE-ME-*` placeholders instead, and the teamserver warns at startup about default/placeholder/weak-looking operator and Service API passwords. The SHA3-256 auth scheme itself is unchanged. (#57)
+- `BehindRedir` HTTP listeners still trust `X-Forwarded-For` (that is the feature's trust model), but the value is now validated with `net.ParseIP` and the peer address is used as fallback for malformed values. (#58)
 
 ### Removed
 
@@ -17,6 +22,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Teamserver: post-auth RCE via the payload `Service Name` option — the value was interpolated unescaped into the `SERVICE_NAME` define of a `sh -c` compile command; it is now restricted to letters, digits, space, `.`, `-`, `_` and rejected otherwise. Also fixed the nasm path being used as a `fmt.Sprintf` format string. (#41)
+- Teamserver: data races on `Agent` state — `JobQueue`, `Tasks` and `Downloads` are now guarded by a per-agent mutex (`AddRequest`/`RequestCompleted`/`IsKnownRequestID`, `AddJobToQueue`/`GetQueuedJobs`, the pivot job append, the `Download*` helpers, `task list`/`task clear`, and new `QueuedJobsLen`/`DownloadsLen` helpers). (#42)
+- Teamserver: the Service API dispatch and `agent.RegisterInfoToInstance` ran unchecked type assertions on service-client-controlled JSON, panicking the handler on malformed messages; all such assertions are now comma-ok checked and rejected with a debug log. (#43)
+- Teamserver: `log.Fatal` in `logr` (agent-influenced log-file open) and `db.ListenerCount` killed the whole teamserver; both now log/return errors instead. (#46)
+- Teamserver: the payload compile directory under `/tmp` had a predictable time-seeded name; it is now created with `os.MkdirTemp` (unpredictable, 0700). (#47)
+- Teamserver: the global agents slice was appended and iterated concurrently without synchronization; `AgentsAppend` now takes a write lock and all iterations use a new `Agents.Snapshot()` copy helper. (#49)
+- Teamserver: Service API `SendResponse` blocked forever when a third-party agent never answered, and the `Responses` map was accessed without a lock; it now uses a mutex-guarded map, buffered channels, a 5-minute timeout, and non-blocking response delivery. (#50)
+- Teamserver: the SOCKS reader goroutine busy-spun at 100% CPU while waiting for the agent to connect, `socks.Clients` was appended/iterated without a lock, the local socket leaked on EOF, and `SocksClient.Connected` was racy (now atomic). (#51)
+- Teamserver: path-containment checks used bare `strings.HasPrefix` (bypassable by a sibling directory sharing the prefix); a `filepath.Rel`-based `logr.PathWithin` helper is now used for log/download/screenshot paths. (#53)
+- Teamserver: the new-agent webhook was synchronous with no timeout (blocking agent registration), leaked the response body on success, and used the remote response as a `fmt.Errorf` format string; it is now asynchronous with a 10s timeout and a constant error format. (#59)
+- Teamserver: `GetQueuedJobs` size accounting ignored the 12-byte per-job header, pre-built `job.Payload` blobs, and the terminating NUL of strings, letting queued jobs exceed `DEMON_MAX_RESPONSE_LENGTH`. (#62)
+- Teamserver: `PortFwdGet` returned a pointer callers dereferenced after releasing the lock while `PortFwdClose` could nil/remove it concurrently; the port-forward operations now hold the lock across lookup and use (the blocking read grabs the connection under the lock and copies without it). (#68)
+- Teamserver: `ToMap` temporarily mutated the shared `Pivots.Parent` during marshalling; concurrent calls could interleave, so `ToMap` is now serialized with a package-level mutex. (#69)
+- Teamserver: `GenerateID`/`GenerateString` used time-seeded `math/rand` (predictable, colliding within the same nanosecond); both now use `crypto/rand` with unchanged output formats. (#70)
+- Teamserver: the duplicate-login check raced the username assignment, letting two concurrent logins as the same operator through; the check, authentication and assignment now run under a login mutex. (#71)
+- Teamserver: no operator login rate limiting existed; failed logins are now counted per source IP with a 5-minute lockout after 5 failures. (#73)
+- Teamserver: the fake 404 page was read via a CWD-relative path; it is now embedded with `go:embed`. (#74)
+- Teamserver: `pkg/db` prepared statements in `LinkExist`, `ParentOf` and `LinksOf` were never closed, leaking SQLite statement handles. (#92)
+- Teamserver: `Parser.ParseBytes` converted the length prefix via `uint(ParseInt32())`, turning negative 32-bit lengths into ~4 GiB sizes; it now parses the length as signed and clamps to the remaining buffer. (#94)
+- Teamserver: a panic in the operator websocket handler left a ghost (possibly authenticated) client whose username blocked reconnects; the recover path now closes the socket, emits the disconnect event and removes the client. (#103)
 - Vendored `yaotl/hclsyntax` parser had unreachable code (`return nil, nil` after a switch whose branches all return), which failed `go vet ./...` and broke the new CI; the dead statement is removed.
 
 ## [0.7.2] - 2026-08-07
