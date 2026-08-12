@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"Havoc/pkg/common"
 	"Havoc/pkg/logger"
@@ -20,7 +19,7 @@ func (l Logr) AddAgentInput(AgentType, AgentID, User, TaskID, Input string, time
 
 	// check if we don't have a path traversal
 	path := filepath.Clean(DemonLogFile)
-	if !strings.HasPrefix(path, DemonPath) {
+	if !PathWithin(DemonPath, path) {
 		logger.Error("File didn't started with agent loot path. abort")
 		return
 	}
@@ -56,7 +55,7 @@ func (l Logr) AddAgentRaw(AgentID, Raw string) {
 
 	// check if we don't have a path traversal
 	path := filepath.Clean(DemonLogFile)
-	if !strings.HasPrefix(path, DemonPath) {
+	if !PathWithin(DemonPath, path) {
 		logger.Error("File didn't started with agent loot path. abort")
 		return
 	}
@@ -90,7 +89,7 @@ func (l Logr) DemonAddOutput(DemonID string, Output map[string]string, time stri
 
 	// check if we don't have a path traversal
 	path := filepath.Clean(DemonLogFile)
-	if !strings.HasPrefix(path, DemonPath) {
+	if !PathWithin(DemonPath, path) {
 		logger.Error("File didn't started with agent loot path. abort")
 		return
 	}
@@ -145,7 +144,7 @@ func (l Logr) DemonAddDownloadedFile(DemonID, FileName string, FileBytes []byte)
 
 	// check if we don't have a path traversal
 	path := filepath.Clean(DemonDownload)
-	if !strings.HasPrefix(path, DemonDownloadDir) {
+	if !PathWithin(DemonDownloadDir, path) {
 		logger.Error("File didn't started with agent download path. abort")
 		return
 	}
@@ -188,7 +187,7 @@ func (l Logr) DemonSaveScreenshot(DemonID, Name string, BmpBytes []byte) error {
 
 	// check if we don't have a path traversal
 	path := filepath.Clean(DemonScreenshot)
-	if !strings.HasPrefix(path, DemonScreenshotDir) {
+	if !PathWithin(DemonScreenshotDir, path) {
 		logger.Error("File didn't started with agent screenshot path. abort")
 		return errors.New("file didn't started with agent screenshot path. abort")
 	}

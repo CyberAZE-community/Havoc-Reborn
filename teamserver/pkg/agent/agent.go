@@ -840,7 +840,7 @@ func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
 
 	/* check if we don't have a path traversal */
 	path := filepath.Clean(DemonDownload)
-	if !strings.HasPrefix(path, DemonDownloadDir) {
+	if !logr.PathWithin(DemonDownloadDir, path) {
 		logger.Error("File didn't started with agent download path. abort")
 		return errors.New("File didn't started with agent download path. abort")
 	}
