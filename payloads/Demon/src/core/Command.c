@@ -315,10 +315,18 @@ VOID CommandProc( PPARSER Parser )
                         {
                             if ( NT_SUCCESS( SysNtReadVirtualMemory( hProcess, CONTAINING_RECORD( ListEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks ), &CurrentModule, sizeof( CurrentModule ), NULL ) ) )
                             {
-                                SysNtReadVirtualMemory( hProcess, CurrentModule.FullDllName.Buffer, &ModuleNameW, CurrentModule.FullDllName.Length, &Size );
+                                /* FullDllName.Length (in bytes) comes from the target process
+                                 * and can be larger than our buffer. clamp it. */
+                                UINT16 NameLength = CurrentModule.FullDllName.Length;
 
-                                if ( CurrentModule.FullDllName.Length > 0 ) {
-                                    Size = WCharStringToCharString( ModuleName, ModuleNameW, CurrentModule.FullDllName.Length );
+                                if ( NameLength > sizeof( ModuleNameW ) - sizeof( WCHAR ) )
+                                    NameLength = sizeof( ModuleNameW ) - sizeof( WCHAR );
+
+                                if ( NameLength > 0 ) {
+                                    SysNtReadVirtualMemory( hProcess, CurrentModule.FullDllName.Buffer, &ModuleNameW, NameLength, &Size );
+                                    ModuleNameW[ NameLength / sizeof( WCHAR ) ] = 0;
+
+                                    Size = WCharStringToCharString( ModuleName, ModuleNameW, MAX_PATH );
 
                                     PackageAddString( Package, ModuleName );
                                     PackageAddPtr( Package, CurrentModule.DllBase );
