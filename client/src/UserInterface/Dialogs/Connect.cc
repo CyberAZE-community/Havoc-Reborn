@@ -201,6 +201,10 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
     ConnectionInfo->Password = lineEdit_Password->text();
     ConnectionInfo->IgnoreSSLErrors = checkBox_IgnoreSsl->isChecked();
 
+    /* the password field still holds the stored hash of an unchanged saved profile */
+    if ( ! ProfilePasswordHash.isEmpty() && ConnectionInfo->Password == ProfilePasswordHash )
+        ConnectionInfo->PasswordIsHashed = true;
+
     ProfileName = ConnectionInfo->Name.toStdString();
 
     if ( this->tryConnect )
@@ -339,6 +343,8 @@ void HavocNamespace::UserInterface::Dialogs::Connect::itemSelected()
             lineEdit_Port->setText( Profile.Port );
             lineEdit_User->setText( Profile.User );
             lineEdit_Password->setText( Profile.Password );
+
+            ProfilePasswordHash = Profile.PasswordIsHashed ? Profile.Password : QString();
         }
     }
 
@@ -348,6 +354,7 @@ void HavocNamespace::UserInterface::Dialogs::Connect::itemSelected()
 void HavocNamespace::UserInterface::Dialogs::Connect::onButton_NewProfile()
 {
     this->isNewProfile = true;
+    this->ProfilePasswordHash.clear();
 
     listWidget->setCurrentIndex(QModelIndex());
 

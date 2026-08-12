@@ -66,6 +66,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: C++→Python invocation entry points (network-dispatched callbacks, demon console script commands, script loading, the script interpreter) now wrap the Python C-API calls in `PyGILState_Ensure`/`PyGILState_Release`. The interpreter is initialized once on the Qt main thread and never releases the GIL, so these guards are no-ops today but make the call sites correct if they are ever reached from another thread. (#79)
 - Client: losing the teamserver connection killed the whole client (`exit(0)` from the websocket `disconnected` handler); it now shows the error and returns to the connect dialog (a successful connect replaces the connection; cancelling keeps the client running disconnected). Full auto-reconnect is out of scope. (#80)
 - Client: operator Python scripts run fully unsandboxed; the client now shows an explicit trust warning with a confirmation prompt (defaulting to No) when adding a script in the Script Manager and before loading saved scripts at startup, and `havoc.Load` logs a prominent warning. No sandboxing was added — do not load scripts you do not fully trust. (#96)
+- Client: saved teamserver profile passwords were stored plaintext in `data/client.db`; they are now stored as `sha3:<hex>` (SHA3-256, matching the wire auth hash) in the same column, and legacy plaintext rows are migrated on read. The wire authentication scheme is unchanged. (#97)
 
 ## [0.7.2] - 2026-08-07
 

@@ -111,7 +111,9 @@ void Connector::SendLogin()
 
     Body.SubEvent           = Util::Packager::InitConnection::Login;
     Body.Info[ "User" ]     = this->Teamserver->User.toStdString();
-    Body.Info[ "Password" ] = QCryptographicHash::hash( this->Teamserver->Password.toLocal8Bit(), QCryptographicHash::Sha3_256 ).toHex().toStdString();
+    Body.Info[ "Password" ] = this->Teamserver->PasswordIsHashed ?
+                              this->Teamserver->Password.toStdString() :
+                              QCryptographicHash::hash( this->Teamserver->Password.toLocal8Bit(), QCryptographicHash::Sha3_256 ).toHex().toStdString();
 
     Package.Head = Head;
     Package.Body = Body;

@@ -47,6 +47,7 @@ public:
     bool                         tryConnect     = false;
     bool                         isNewProfile   = false;
     bool                         FromAction     = false;
+    QString                      ProfilePasswordHash;
 
     void setupUi( QDialog* Form );
     Util::ConnectionInfo StartDialog( bool FromAction );
