@@ -3295,9 +3295,17 @@ BOOL InWorkingHours( )
     WORD       StartMinute  = 0;
     WORD       EndHour      = 0;
     WORD       EndMinute    = 0;
+    UINT32     Start        = 0;
+    UINT32     End          = 0;
+    UINT32     Now          = 0;
 
     // if WorkingHours is not set, return TRUE
     if ( ( ( WorkingHours >> 22 ) & 1 ) == 0 )
+        return TRUE;
+
+    // a sleep time of 0 means the operator is performing some "important"
+    // task right now, so working hours are ignored entirely
+    if ( Instance->Config.Sleeping == 0 )
         return TRUE;
 
     StartHour   = ( WorkingHours >> 17 ) & 0b011111;
@@ -3307,16 +3315,18 @@ BOOL InWorkingHours( )
 
     Instance->Win32.GetLocalTime(&SystemTime);
 
-    if ( SystemTime.wHour < StartHour || SystemTime.wHour > EndHour )
-        return FALSE;
+    /* compare as minutes of the day so overnight ranges
+     * (e.g. 22:00 - 06:00) are handled correctly */
+    Start = StartHour * 60 + StartMinute;
+    End   = EndHour   * 60 + EndMinute;
+    Now   = SystemTime.wHour * 60 + SystemTime.wMinute;
 
-    if ( SystemTime.wHour == StartHour && SystemTime.wMinute < StartMinute )
-        return FALSE;
+    if ( Start <= End )
+        return Now >= Start && Now <= End;
 
-    if ( SystemTime.wHour == EndHour && SystemTime.wMinute > EndMinute )
-        return FALSE;
-
-    return TRUE;
+    /* overnight range: we are inside when we are past the start
+     * OR before the end */
+    return Now >= Start || Now <= End;
 }
 
 BOOL ReachedKillDate()
