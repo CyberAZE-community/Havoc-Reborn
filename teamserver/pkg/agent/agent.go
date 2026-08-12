@@ -1300,10 +1300,15 @@ func (a *Agent) ToMap() map[string]interface{} {
 	ParentAgent = a.Pivots.Parent
 	a.Pivots.Parent = nil
 
-	Info = structs.Map(a)
+	// restore and unlock via defer: a panic in structs.Map must not
+	// leave the mutex held (bricking all future ToMap calls) or the
+	// pivot parent stripped
+	defer func() {
+		a.Pivots.Parent = ParentAgent
+		toMapMtx.Unlock()
+	}()
 
-	a.Pivots.Parent = ParentAgent
-	toMapMtx.Unlock()
+	Info = structs.Map(a)
 
 	Info["Info"].(map[string]interface{})["Listener"] = nil
 
