@@ -85,8 +85,6 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
         if ( HavocX::Connector == this )
             HavocX::Connector = nullptr;
 
-        this->deleteLater();
-
         /* graceful handling: return to the connect dialog instead of
          * killing the whole client */
         auto Connect = new UserInterface::Dialogs::Connect;
@@ -100,6 +98,12 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
         Connect->StartDialog( true );
 
         delete Connect;
+
+        /* schedule the deletion only after the dialog flow completed:
+         * StartDialog runs nested exec() loops that would otherwise
+         * process the deferred delete while this slot is still on the
+         * stack */
+        this->deleteLater();
     } );
 
     Socket->open( QUrl( Server ) );
