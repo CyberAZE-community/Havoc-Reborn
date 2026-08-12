@@ -1212,15 +1212,17 @@ func (a *Agent) SocksServerRemove(Addr string) {
 // ToMap returns the agent info as a map
 func (a *Agent) ToMap() map[string]interface{} {
 	var (
-		ParentAgent *Agent
-		Info        map[string]any
-		MagicValue  string
+		Info       map[string]any
+		MagicValue string
 	)
 
-	ParentAgent = a.Pivots.Parent
-	a.Pivots.Parent = nil
+	// marshal a shallow copy with the pivot parent stripped instead of
+	// temporarily mutating the shared agent struct, which races with
+	// concurrent ToMap calls
+	copied := *a
+	copied.Pivots.Parent = nil
 
-	Info = structs.Map(a)
+	Info = structs.Map(&copied)
 
 	Info["Info"].(map[string]interface{})["Listener"] = nil
 
@@ -1231,9 +1233,8 @@ func (a *Agent) ToMap() map[string]interface{} {
 
 	MagicValue = fmt.Sprintf("%08x", a.Info.MagicValue)
 
-	if ParentAgent != nil {
-		Info["PivotParent"] = ParentAgent.NameID
-		a.Pivots.Parent = ParentAgent
+	if a.Pivots.Parent != nil {
+		Info["PivotParent"] = a.Pivots.Parent.NameID
 	}
 
 	Info["MagicValue"] = MagicValue
