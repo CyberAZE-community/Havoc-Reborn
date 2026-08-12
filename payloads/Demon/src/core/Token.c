@@ -164,8 +164,12 @@ BOOL TokenQueryOwner(
             }
 
             /* now let's add the \ between the Username and Domain */
-            if ( Flags == TOKEN_OWNER_FLAG_DEFAULT ) {
-                B_PTR( UserDomain->Buffer )[ ( DomnLen * sizeof( WCHAR ) ) ] = '\\';
+            if ( Flags == TOKEN_OWNER_FLAG_DEFAULT && DomnLen > 0 ) {
+                /* the separator replaces the NUL terminator of the domain,
+                 * which sits right before the username. the old offset
+                 * (DomnLen * sizeof(WCHAR)) landed on the first character
+                 * of the username and corrupted it (DOMAIN\dmin) */
+                B_PTR( UserDomain->Buffer )[ ( DomnLen - 1 ) * sizeof( WCHAR ) ] = '\\';
             }
 
             /* if we reached til this point means we were pretty much successful */
