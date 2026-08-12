@@ -38,10 +38,8 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
         if ( Package != nullptr )
         {
-            if ( ! Packager )
-                return;
-
-            Packager->DispatchPackage( Package );
+            if ( Packager )
+                Packager->DispatchPackage( Package );
 
             delete Package;
 
