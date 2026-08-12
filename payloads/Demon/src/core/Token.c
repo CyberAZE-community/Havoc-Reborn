@@ -165,11 +165,14 @@ BOOL TokenQueryOwner(
 
             /* now let's add the \ between the Username and Domain */
             if ( Flags == TOKEN_OWNER_FLAG_DEFAULT && DomnLen > 0 ) {
-                /* the separator replaces the NUL terminator of the domain,
-                 * which sits right before the username. the old offset
-                 * (DomnLen * sizeof(WCHAR)) landed on the first character
-                 * of the username and corrupted it (DOMAIN\dmin) */
-                B_PTR( UserDomain->Buffer )[ ( DomnLen - 1 ) * sizeof( WCHAR ) ] = '\\';
+                /* derive the separator position from the string itself:
+                 * cchReferencedDomainName includes the NUL on the failed
+                 * sizing call but excludes it after the successful lookup,
+                 * so DomnLen can't be trusted for indexing. the buffer
+                 * layout is [ domain NUL user NUL ], so overwriting the
+                 * domain's NUL terminator with the separator joins both
+                 * parts in place and stays in bounds. */
+                B_PTR( UserDomain->Buffer )[ StringLengthW( Domain ) * sizeof( WCHAR ) ] = '\\';
             }
 
             /* if we reached til this point means we were pretty much successful */
