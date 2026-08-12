@@ -508,7 +508,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
             {
                 auto Time = QString( Package->Head.Time.c_str() );
 
-                HavocX::Teamserver.TabSession->TeamserverChat->AddUserMessage( Time, string( e.first ).c_str(), QByteArray::fromBase64( string( e.second ).c_str() ) );
+                HavocX::Teamserver.TabSession->TeamserverChat->AddUserMessage( Time, string( e.first ).c_str(), Util::base64_decode_capped( string( e.second ).c_str() ) );
             }
             break;
         }
@@ -565,7 +565,7 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
 
                 if (HavocX::GateGUI)
                 {
-                    HavocX::Teamserver.TabSession->PayloadDialog->ReceivedImplantAndSave( FileName, QByteArray::fromBase64( PayloadArray ) );
+                    HavocX::Teamserver.TabSession->PayloadDialog->ReceivedImplantAndSave( FileName, Util::base64_decode_capped( PayloadArray ) );
                     HavocX::GateGUI = false;
                 }
                 else
@@ -740,7 +740,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                     {
                         case ( int ) Commands::CONSOLE_MESSAGE:
 
-                            if ( QByteArray::fromBase64( Output.toLocal8Bit() ).length() > 5 )
+                            if ( Util::base64_decode_capped( Output.toLocal8Bit() ).length() > 5 )
                             {
                                 Session.InteractedWidget->DemonCommands->OutputDispatch.MessageOutput(
                                         Output,
@@ -755,9 +755,9 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
 
                         case ( int ) Commands::BOF_CALLBACK:
 
-                            if ( QByteArray::fromBase64( Output.toLocal8Bit() ).length() > 5 )
+                            if ( Util::base64_decode_capped( Output.toLocal8Bit() ).length() > 5 )
                             {
-                                auto JsonDocument  = QJsonDocument::fromJson( QByteArray::fromBase64( Output.toLocal8Bit( ) ) );
+                                auto JsonDocument  = QJsonDocument::fromJson( Util::base64_decode_capped( Output.toLocal8Bit( ) ) );
                                 auto Worked        = JsonDocument[ "Worked" ].toString();
                                 auto Output        = JsonDocument[ "Output" ].toString();
                                 auto Error         = JsonDocument[ "Error"  ].toString();
@@ -793,7 +793,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                         case ( int ) Commands::CALLBACK:
                         {
                             // update the "Last" field on this session
-                            auto LastTime     = QString( QByteArray::fromBase64( Output.toLocal8Bit() ) );
+                            auto LastTime     = QString( Util::base64_decode_capped( Output.toLocal8Bit() ) );
                             auto LastTimeJson = QJsonDocument::fromJson( LastTime.toLocal8Bit() );
 
                             Session.Last         = LastTimeJson["Last"].toString();
@@ -1022,7 +1022,7 @@ bool Packager::DispatchLoot( Util::Packager::PPackage Package )
         {
             auto AgentID  = QString( Package->Body.Info[ "AgentID" ].c_str() );
             auto FileName = QString( Package->Body.Info[ "FileName" ].c_str() );
-            auto Content  = QByteArray::fromBase64( QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit() );
+            auto Content  = Util::base64_decode_capped( QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit() );
 
             if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
             {

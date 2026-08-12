@@ -42,6 +42,18 @@ std::string Util::gen_random( const int len )
     return out;
 }
 
+QByteArray Util::base64_decode_capped( const QByteArray& Data )
+{
+    /* 256 MiB of encoded text (~192 MiB decoded) */
+    if ( Data.size() > 256 * 1024 * 1024 )
+    {
+        spdlog::warn( "dropping oversized base64 payload ({} bytes encoded)", Data.size() );
+        return QByteArray();
+    }
+
+    return QByteArray::fromBase64( Data );
+}
+
 void Util::SessionItem::Export()
 {
     auto FileDialog = QFileDialog();
