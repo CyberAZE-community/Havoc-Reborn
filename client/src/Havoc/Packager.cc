@@ -1034,7 +1034,26 @@ bool Packager::DispatchLoot( Util::Packager::PPackage Package )
         {
             auto AgentID  = QString( Package->Body.Info[ "AgentID" ].c_str() );
             auto FileName = QString( Package->Body.Info[ "FileName" ].c_str() );
-            auto Content  = Util::base64_decode_capped( QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit() );
+            auto Encoded  = QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit();
+            auto Content  = Util::base64_decode_capped( Encoded );
+
+            /* base64_decode_capped drops payloads over its cap with only
+             * an spdlog warning; surface that here instead of silently
+             * saving an empty loot file (same cap as global.cc) */
+            if ( Encoded.size() > 256 * 1024 * 1024 )
+            {
+                auto Error = QString( "Loot file \"%1\" from agent %2 exceeds the size cap and was dropped" ).arg( FileName, AgentID );
+
+                if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
+                {
+                    HavocX::Teamserver.TabSession->LootWidget->LootError( Error );
+                }
+                else
+                {
+                    QMessageBox::warning( nullptr, "Loot", Error );
+                }
+                break;
+            }
 
             if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
             {
