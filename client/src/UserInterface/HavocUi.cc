@@ -601,7 +601,28 @@ void UserInterface::HavocUi::PythonPrepare()
 
     PyImport_ImportModule( "emb" );
 
-    for ( auto& ScriptPath : dbManager->GetScripts() ) {
+    auto SavedScripts = dbManager->GetScripts();
+
+    if ( ! SavedScripts.empty() )
+    {
+        /* scripts run unsandboxed with full client privileges — make the trust explicit */
+        auto ScriptList = QString();
+        for ( auto& ScriptPath : SavedScripts )
+            ScriptList += ScriptPath + "\n";
+
+        auto confirmBox = QMessageBox();
+        confirmBox.setWindowTitle( "Load saved scripts" );
+        confirmBox.setText( "The following saved Python scripts are about to be loaded. Scripts run unsandboxed with full access to the client and the connected teamserver. Only load scripts you fully trust.\n\n" + ScriptList );
+        confirmBox.setIcon( QMessageBox::Warning );
+        confirmBox.setStandardButtons( QMessageBox::Yes | QMessageBox::No );
+        confirmBox.setDefaultButton( QMessageBox::No );
+        confirmBox.setStyleSheet( FileRead( ":/stylesheets/MessageBox" ) );
+
+        if ( confirmBox.exec() != QMessageBox::Yes )
+            return;
+    }
+
+    for ( auto& ScriptPath : SavedScripts ) {
         Widgets::ScriptManager::AddScript( ScriptPath );
     }
 }

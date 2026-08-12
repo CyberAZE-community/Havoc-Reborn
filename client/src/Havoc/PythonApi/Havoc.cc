@@ -74,7 +74,7 @@ PyObject* PythonAPI::Havoc::Core::Load( PyObject *self, PyObject *args )
 
     auto script = FileRead( FilePath );
 
-    spdlog::info( "Load Script: {}", FilePath );
+    spdlog::warn( "Load Script (unsandboxed, full client privileges): {}", FilePath );
 
     Return = PyRun_SimpleStringFlags( script.toStdString().c_str(), NULL );
 

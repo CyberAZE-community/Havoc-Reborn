@@ -170,6 +170,18 @@ void ScriptManager::b_LoadScript()
         Filename = FileDialog.selectedUrls().value( 0 ).toLocalFile();
         if ( ! Filename.toString().isNull() )
         {
+            /* scripts run unsandboxed with full client privileges — make the trust explicit */
+            auto confirmBox = QMessageBox();
+            confirmBox.setWindowTitle( "Load Script" );
+            confirmBox.setText( "Python scripts run unsandboxed with full access to the client and the connected teamserver. Only load scripts you fully trust.\n\nLoad " + Filename.toString() + "?" );
+            confirmBox.setIcon( QMessageBox::Warning );
+            confirmBox.setStandardButtons( QMessageBox::Yes | QMessageBox::No );
+            confirmBox.setDefaultButton( QMessageBox::No );
+            confirmBox.setStyleSheet( FileRead( ":/stylesheets/MessageBox" ) );
+
+            if ( confirmBox.exec() != QMessageBox::Yes )
+                return;
+
             if ( AddScript( Filename.toString() ) ) {
                 AddScriptTable( Filename.toString() );
             } else {
