@@ -39,9 +39,60 @@ func NewTeamserver(DatabasePath string) *Teamserver {
 		return nil
 	} else {
 		return &Teamserver{
-			DB: d,
+			DB:            d,
+			LoginAttempts: make(map[string]*LoginAttempt),
 		}
 	}
+}
+
+// LoginThrottled reports whether the source IP is currently locked out
+// after too many failed operator logins.
+func (t *Teamserver) LoginThrottled(ip string) bool {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	attempt, ok := t.LoginAttempts[ip]
+	if !ok {
+		return false
+	}
+
+	if time.Now().Before(attempt.LockedUntil) {
+		return true
+	}
+
+	// lockout expired, reset
+	if !attempt.LockedUntil.IsZero() {
+		delete(t.LoginAttempts, ip)
+	}
+
+	return false
+}
+
+// LoginFailure records a failed operator login from the source IP and
+// locks it out once the failure threshold is reached.
+func (t *Teamserver) LoginFailure(ip string) {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	attempt, ok := t.LoginAttempts[ip]
+	if !ok {
+		attempt = &LoginAttempt{}
+		t.LoginAttempts[ip] = attempt
+	}
+
+	attempt.Failures++
+	if attempt.Failures >= loginMaxFailures {
+		attempt.LockedUntil = time.Now().Add(loginLockout)
+		logger.Warn(fmt.Sprintf("Too many failed operator logins from %v - locking out for %v", colors.Red(ip), loginLockout))
+	}
+}
+
+// LoginSuccess clears the failed-login counter for the source IP.
+func (t *Teamserver) LoginSuccess(ip string) {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	delete(t.LoginAttempts, ip)
 }
 
 func (t *Teamserver) SetServerFlags(flags TeamserverFlags) {
@@ -624,8 +675,22 @@ func (t *Teamserver) handleRequest(id string) {
 		return
 	}
 
+	if t.LoginThrottled(client.GlobalIP) {
+		t.LoginMutex.Unlock()
+		logger.Error("Client [User: " + User + "] login attempt from throttled IP (" + colors.Red(client.GlobalIP) + ")")
+		err := t.SendEvent(id, events.Authenticated(false))
+		if err != nil {
+			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+		}
+		if err = client.Connection.Close(); err != nil {
+			logger.Error("Failed to close client (" + id + ") socket")
+		}
+		return
+	}
+
 	if !t.ClientAuthenticate(pk) {
 		t.LoginMutex.Unlock()
+		t.LoginFailure(client.GlobalIP)
 		logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
 		err := t.SendEvent(id, events.Authenticated(false))
 		if err != nil {
@@ -645,6 +710,8 @@ func (t *Teamserver) handleRequest(id string) {
 		client.Username = User
 
 		t.LoginMutex.Unlock()
+
+		t.LoginSuccess(client.GlobalIP)
 
 		err := t.SendEvent(id, events.Authenticated(true))
 		if err != nil {

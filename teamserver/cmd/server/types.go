@@ -8,6 +8,7 @@ import (
 	"Havoc/pkg/service"
 	"Havoc/pkg/webhook"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -73,6 +74,22 @@ type Endpoint struct {
 // defaultEventsListMax is the default cap for the in-memory event history
 const defaultEventsListMax = 10000
 
+const (
+	// loginMaxFailures is the number of failed operator logins from one
+	// source IP before it gets temporarily locked out
+	loginMaxFailures = 5
+
+	// loginLockout is how long a source IP is locked out after too many
+	// failed operator logins
+	loginLockout = 5 * time.Minute
+)
+
+// LoginAttempt tracks failed operator logins from a single source IP
+type LoginAttempt struct {
+	Failures    int
+	LockedUntil time.Time
+}
+
 type Teamserver struct {
 	Flags      TeamserverFlags
 	Profile    *profile.Profile
@@ -86,6 +103,11 @@ type Teamserver struct {
 	// LoginMutex serializes the operator login flow so the
 	// duplicate-username check and its assignment are atomic
 	LoginMutex sync.Mutex
+
+	// LoginAttempts tracks failed operator logins per source IP for
+	// brute-force throttling
+	LoginAttempts    map[string]*LoginAttempt
+	LoginAttemptsMtx sync.Mutex
 
 	// EventsListMax bounds the in-memory event history replayed to new
 	// clients; oldest events are dropped once the cap is reached
