@@ -168,12 +168,68 @@ PBYTE ParserGetBytes( PPARSER parser, PUINT32 size )
 
 PCHAR  ParserGetString( PPARSER parser, PUINT32 size )
 {
-    return ( PCHAR ) ParserGetBytes( parser, size );
+    UINT32 Length = 0;
+    PCHAR  String = NULL;
+    UINT32 i      = 0;
+
+    String = ( PCHAR ) ParserGetBytes( parser, &Length );
+
+    if ( ! String )
+        return NULL;
+
+    /* the length prefix is not to be trusted blindly. make sure the
+     * string is actually NUL terminated within its length, otherwise
+     * consumers using it as a C string would read out of bounds */
+    for ( ; i < Length; i++ ) {
+        if ( String[ i ] == 0 )
+            break;
+    }
+
+    if ( i == Length )
+    {
+        PRINTF( "ParserGetString: string not NUL terminated (length %x)\n", Length );
+        if ( size != NULL )
+            *size = 0;
+        return NULL;
+    }
+
+    if ( size != NULL )
+        *size = Length;
+
+    return String;
 }
 
 PWCHAR  ParserGetWString( PPARSER parser, PUINT32 size )
 {
-    return ( PWCHAR ) ParserGetBytes( parser, size );
+    UINT32 Length = 0;
+    PWCHAR String = NULL;
+    UINT32 i      = 0;
+
+    String = ( PWCHAR ) ParserGetBytes( parser, &Length );
+
+    if ( ! String )
+        return NULL;
+
+    /* the length prefix is not to be trusted blindly. make sure the
+     * string is actually NUL terminated within its length, otherwise
+     * consumers using it as a C string would read out of bounds */
+    for ( ; i < Length / sizeof( WCHAR ); i++ ) {
+        if ( String[ i ] == 0 )
+            break;
+    }
+
+    if ( i == Length / sizeof( WCHAR ) )
+    {
+        PRINTF( "ParserGetWString: string not NUL terminated (length %x)\n", Length );
+        if ( size != NULL )
+            *size = 0;
+        return NULL;
+    }
+
+    if ( size != NULL )
+        *size = Length;
+
+    return String;
 }
 
 VOID ParserDestroy( PPARSER Parser )

