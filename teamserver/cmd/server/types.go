@@ -82,6 +82,10 @@ const (
 	// loginLockout is how long a source IP is locked out after too many
 	// failed operator logins
 	loginLockout = 5 * time.Minute
+
+	// loginAttemptsMax bounds the LoginAttempts map; past this size
+	// expired entries are swept before new ones are recorded
+	loginAttemptsMax = 10000
 )
 
 // LoginAttempt tracks failed operator logins from a single source IP

@@ -76,6 +76,24 @@ func (t *Teamserver) LoginFailure(ip string) {
 
 	attempt, ok := t.LoginAttempts[ip]
 	if !ok {
+		// bound the map: entries are otherwise only removed on success
+		// or a revisit from the same IP, so attacker-churned source IPs
+		// would grow it without limit. sweep expired lockouts first and,
+		// if still full, evict arbitrary entries to make room.
+		if len(t.LoginAttempts) >= loginAttemptsMax {
+			now := time.Now()
+			for k, a := range t.LoginAttempts {
+				if !a.LockedUntil.IsZero() && now.After(a.LockedUntil) {
+					delete(t.LoginAttempts, k)
+				}
+			}
+			for k := range t.LoginAttempts {
+				if len(t.LoginAttempts) < loginAttemptsMax {
+					break
+				}
+				delete(t.LoginAttempts, k)
+			}
+		}
 		attempt = &LoginAttempt{}
 		t.LoginAttempts[ip] = attempt
 	}
