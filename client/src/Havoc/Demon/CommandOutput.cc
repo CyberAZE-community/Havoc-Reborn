@@ -40,12 +40,16 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
         //printf("task: %s\n", TaskID.toUtf8().constData());
         if (HavocX::callbackMessage)
         {
+            auto GilState = PyGILState_Ensure();
+
             PyObject *arglist = Py_BuildValue( "s", Output.toUtf8().constData() );
             PyObject *result  = PyObject_CallFunctionObjArgs( HavocX::callbackMessage, arglist, NULL );
             Py_XDECREF( result );
             Py_XDECREF( arglist );
             Py_XDECREF( HavocX::callbackMessage );
             HavocX::callbackMessage = NULL;
+
+            PyGILState_Release( GilState );
         }
         this->DemonCommandInstance->DemonConsole->AppendRaw( Output.toHtmlEscaped() );
     }

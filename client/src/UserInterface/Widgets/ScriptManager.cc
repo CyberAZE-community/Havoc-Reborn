@@ -118,7 +118,9 @@ bool ScriptManager::AddScript( QString Path )
 
     if ( Script != nullptr ) {
         if ( ! Script.isEmpty() ) {
+            auto GilState = PyGILState_Ensure();
             Return = PyRun_SimpleStringFlags( Script.toStdString().c_str(), NULL );
+            PyGILState_Release( GilState );
             if ( Return == -1 ) {
                 spdlog::error( "Failed to run script: {}", path );
             } else {

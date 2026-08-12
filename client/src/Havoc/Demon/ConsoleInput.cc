@@ -2462,7 +2462,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             for ( u32 i = 2; i < InputCommands.size(); i++ )
                                 PyTuple_SetItem( FuncArgs, i - 1, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
-                            Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
+                            {
+                                auto GilState = PyGILState_Ensure();
+                                Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
+                                PyGILState_Release( GilState );
+                            }
 
                             if ( ! Path.empty() )
                             {
@@ -2559,7 +2563,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         for ( u32 i = 1; i < InputCommands.size(); i++ )
                             PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
-                        Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
+                        {
+                                auto GilState = PyGILState_Ensure();
+                                Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
+                                PyGILState_Release( GilState );
+                            }
 
                         if ( ! Path.empty() )
                         {
@@ -2826,7 +2834,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 for ( u32 i = 1; i < InputCommands.size(); i++ )
                                     PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
+                                {
+                                auto GilState = PyGILState_Ensure();
                                 Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
+                                PyGILState_Release( GilState );
+                            }
 
                                 if ( ! Path.empty() )
                                 {

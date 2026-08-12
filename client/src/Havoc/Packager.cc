@@ -572,10 +572,14 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
                 {
                     if ( HavocX::callbackGate )
                     {
+                        auto GilState = PyGILState_Ensure();
+
                         PyObject* pyByteArray= PyUnicode_DecodeFSDefault(Package->Body.Info[ "PayloadArray" ].c_str());
                         PyObject* result     = PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
                         Py_XDECREF( result );
                         Py_XDECREF( pyByteArray );
+
+                        PyGILState_Release( GilState );
                     }
                     else
                     {
@@ -667,6 +671,8 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                 {
                     if ( PyCallable_Check( Callback ) )
                     {
+                        auto GilState = PyGILState_Ensure();
+
                         PyObject* arglist = Py_BuildValue( "s", Agent.Name.toStdString().c_str() );
                         PyObject* Return  = PyObject_CallFunctionObjArgs( Callback, arglist, NULL );
                         if ( Return == NULL && PyErr_Occurred() )
@@ -677,6 +683,8 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                         }
                         Py_XDECREF( Return );
                         Py_XDECREF( arglist );
+
+                        PyGILState_Release( GilState );
                     } else {
                         spdlog::error( "Callback is not callable" );
                     }
@@ -769,11 +777,15 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                                     Callback = it->second;
                                     if ( PyCallable_Check( Callback ) )
                                     {
+                                        auto GilState = PyGILState_Ensure();
+
                                         PyObject *arglist = Py_BuildValue( "ssOss", Session.Name.toStdString().c_str(), TaskID.toStdString().c_str(), Worked == "true" ? Py_True : Py_False, Output.toStdString().c_str(), Error.toStdString().c_str() );
                                         PyObject *result  = PyObject_CallObject( Callback, arglist );
                                         Py_XDECREF( result );
                                         Py_XDECREF( arglist );
                                         Py_XDECREF( Callback );
+
+                                        PyGILState_Release( GilState );
                                     } else {
                                         spdlog::error( "Callback is not callable" );
                                     }

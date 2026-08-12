@@ -51,10 +51,14 @@ void HavocNamespace::UserInterface::Widgets::PythonScriptInterpreter::RunCode( Q
     emb::stdout_write_type write = [&] (std::string s) { buffer += s; };
     emb::set_stdout(write);
 
+    auto GilState = PyGILState_Ensure();
+
     if ( PyRun_SimpleStringFlags( code.toStdString().c_str(), NULL ) == -1 )
     {
         spdlog::error( "Failed to run script" );
     }
+
+    PyGILState_Release( GilState );
 
     emb::reset_stdout();
 

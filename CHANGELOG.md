@@ -63,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: `Packager::DecodePackage` leaked the allocated `Package` on malformed JSON and returned it with uninitialized scalar members; it is now value-initialized and freed on the error path. (#76)
 - Client: base64 payloads from the network were decoded without any size bound; decoding now goes through `Util::base64_decode_capped`, which drops payloads over 256 MiB encoded (~192 MiB decoded). (#77)
 - Client: removed the dead `HavocUi::NewTeamserverTab( ConnectionInfo* )` overload, which shallow-copied the `ConnectionInfo` struct (including raw pointers) into the global `HavocX::Teamserver`, aliasing/dangling once the source was freed; the live path (`QString` overload) uses the global directly. (#78)
+- Client: C++→Python invocation entry points (network-dispatched callbacks, demon console script commands, script loading, the script interpreter) now wrap the Python C-API calls in `PyGILState_Ensure`/`PyGILState_Release`. The interpreter is initialized once on the Qt main thread and never releases the GIL, so these guards are no-ops today but make the call sites correct if they are ever reached from another thread. (#79)
 
 ## [0.7.2] - 2026-08-07
 
