@@ -101,7 +101,25 @@ func (h *HTTP) request(ctx *gin.Context) {
 	}
 
 	if h.Config.BehindRedir {
-		ExternalIP = ctx.Request.Header.Get("X-Forwarded-For")
+		// The X-Forwarded-For header is only trustworthy if the redirector
+		// in front of this listener sets/overwrites it. Validate the value
+		// and fall back to the peer address when it is not a parseable IP.
+		ExternalIP = ""
+		if xff := ctx.Request.Header.Get("X-Forwarded-For"); xff != "" {
+			// first entry is the original client address
+			host := strings.TrimSpace(strings.Split(xff, ",")[0])
+			if ip := net.ParseIP(host); ip != nil {
+				ExternalIP = ip.String()
+			} else {
+				logger.Debug("BehindRedir: ignoring malformed X-Forwarded-For value: " + xff)
+			}
+		}
+		if ExternalIP == "" {
+			ExternalIP = ctx.Request.RemoteAddr
+			if host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr); err == nil {
+				ExternalIP = host
+			}
+		}
 	} else {
 		ExternalIP = ctx.Request.RemoteAddr
 		if host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr); err == nil {
