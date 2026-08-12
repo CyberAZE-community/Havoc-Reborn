@@ -220,6 +220,11 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
             }
         }
         else if ( ConnectionInstant->ErrorString == nullptr ) {
+            /* persist a changed "Ignore SSL errors" checkbox on the
+             * existing profile */
+            if ( ! this->dbManager->updateTeamserverInfo( *ConnectionInfo ) ) {
+                spdlog::warn( "Failed to update Teamserver Info in database" );
+            }
             spdlog::info( "Connecting to profile: {}", ProfileName );
         } else {
             spdlog::critical( "Couldn't connect to profile: {}", ProfileName );
@@ -343,6 +348,7 @@ void HavocNamespace::UserInterface::Dialogs::Connect::itemSelected()
             lineEdit_Port->setText( Profile.Port );
             lineEdit_User->setText( Profile.User );
             lineEdit_Password->setText( Profile.Password );
+            checkBox_IgnoreSsl->setChecked( Profile.IgnoreSSLErrors );
 
             ProfilePasswordHash = Profile.PasswordIsHashed ? Profile.Password : QString();
         }

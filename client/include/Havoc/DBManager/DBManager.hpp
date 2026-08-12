@@ -25,6 +25,7 @@ public:
     DBManager(const QString& FilePath, int OpenFlag = OpenSqlFile);
 
     bool addTeamserverInfo( const Util::ConnectionInfo& );
+    bool updateTeamserverInfo( const Util::ConnectionInfo& );
     bool checkTeamserverExists( const QString& ProfileName );
     bool removeTeamserverInfo( const QString& ProfileName );
     bool removeAllTeamservers();

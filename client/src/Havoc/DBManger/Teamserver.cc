@@ -17,7 +17,7 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     auto success = true;
     auto error   = std::string();
 
-    query.prepare( "insert into Teamservers (ProfileName, Host, Port, User, Password) values(:ProfileName, :Host, :Port, :User, :Password)" );
+    query.prepare( "insert into Teamservers (ProfileName, Host, Port, User, Password, IgnoreSSLErrors) values(:ProfileName, :Host, :Port, :User, :Password, :IgnoreSSLErrors)" );
 
     query.bindValue( ":ProfileName", connection.Name.toStdString().c_str() );
     query.bindValue( ":Host",        connection.Host.toStdString().c_str() );
@@ -28,6 +28,7 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     query.bindValue( ":Password",    connection.PasswordIsHashed ?
                                      ( "sha3:" + connection.Password ).toStdString().c_str() :
                                      HashPassword( connection.Password ).toStdString().c_str() );
+    query.bindValue( ":IgnoreSSLErrors", connection.IgnoreSSLErrors ? 1 : 0 );
 
     /* print error */
     if ( ! ( success = query.exec() ) ) {
@@ -38,6 +39,27 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     }
 
     return success;
+}
+
+bool HavocSpace::DBManager::updateTeamserverInfo( const Util::ConnectionInfo& connection )
+{
+    auto query = QSqlQuery();
+    auto error = std::string();
+
+    /* persist UI-togglable connection flags for an existing profile;
+     * credentials stay untouched here */
+    query.prepare( "update Teamservers set IgnoreSSLErrors = :IgnoreSSLErrors where ProfileName = :ProfileName" );
+    query.bindValue( ":IgnoreSSLErrors", connection.IgnoreSSLErrors ? 1 : 0 );
+    query.bindValue( ":ProfileName",     connection.Name.toStdString().c_str() );
+
+    if ( ! query.exec() ) {
+        error = query.lastError().text().toStdString();
+
+        spdlog::error( "[DB] Failed to update teamserver info: {}", error );
+        return false;
+    }
+
+    return true;
 }
 
 bool HavocSpace::DBManager::checkTeamserverExists( const QString& ProfileName )
@@ -108,6 +130,8 @@ vector<Util::ConnectionInfo> HavocSpace::DBManager::listTeamservers()
             .Port     = query.value( "Port" ).toString(),
             .User     = query.value( "User" ).toString(),
         };
+
+        Info.IgnoreSSLErrors = query.value( "IgnoreSSLErrors" ).toBool();
 
         if ( StoredPassword.startsWith( "sha3:" ) ) {
             Info.Password         = StoredPassword.mid( 5 );
