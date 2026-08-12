@@ -1789,7 +1789,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				return nil, errors.New("a socks5 proxy on that port already exists")
 			}
 
-			Socks = socks.NewSocks("0.0.0.0:" + Param)
+			// bind to localhost only: an unauthenticated socks5 proxy on
+			// all interfaces would be an open relay. use port forwards
+			// if remote access is needed.
+			Socks = socks.NewSocks("127.0.0.1:" + Param)
 			if Socks == nil {
 				return nil, errors.New("failed to create a new socks5 instance")
 			}
@@ -1867,7 +1870,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				/* generate some random socket id */
 				SocketId = int32(rand.Uint32())
 
-				s.Clients = append(s.Clients, SocketId)
+				s.ClientsAdd(SocketId)
 
 				a.SocksClientAdd(SocketId, conn, SocksHeader.ATYP, SocksHeader.IpDomain, SocksHeader.Port)
 
@@ -1893,8 +1896,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 						/* check if the connection is still up */
 						if client := a.SocksClientGet(SocketId); client != nil {
 
-							if !client.Connected {
-								/* if we are still not connected then skip */
+							if !client.Connected.Load() {
+								/* if we are still not connected then wait a
+								 * bit instead of busy-spinning at 100% CPU */
+								time.Sleep(50 * time.Millisecond)
 								continue
 							}
 
@@ -1921,25 +1926,25 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 							} else {
 
 								if err != io.EOF {
-
 									/* we failed to read from the socks proxy */
 									logger.Error(fmt.Sprintf("Failed to read from socket %08x: %v", SocketId, err))
-
-									a.SocksClientClose(int32(SocketId))
-
-									/* make a new job */
-									var job = Job{
-										Command: COMMAND_SOCKET,
-										Data: []any{
-											SOCKET_COMMAND_CLOSE,
-											int32(SocketId),
-										},
-									}
-
-									/* append the job to the task queue */
-									a.AddJobToQueue(job)
-
 								}
+
+								/* always close on error/EOF, otherwise the
+								 * local socket leaks */
+								a.SocksClientClose(int32(SocketId))
+
+								/* make a new job */
+								var job = Job{
+									Command: COMMAND_SOCKET,
+									Data: []any{
+										SOCKET_COMMAND_CLOSE,
+										int32(SocketId),
+									},
+								}
+
+								/* append the job to the task queue */
+								a.AddJobToQueue(job)
 
 								break
 							}
@@ -2050,17 +2055,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					a.SocksSvr[i].Server.Close()
 
 					/* close every connection that the agent has with this socks proxy */
-					for client := range a.SocksSvr[i].Server.Clients {
+					for _, client := range a.SocksSvr[i].Server.ClientsSnapshot() {
 
 						/* close the client connection */
-						a.SocksClientClose(a.SocksSvr[i].Server.Clients[client])
+						a.SocksClientClose(client)
 
 						/* make a new job */
 						var job = Job{
 							Command: COMMAND_SOCKET,
 							Data: []any{
 								SOCKET_COMMAND_CLOSE,
-								a.SocksSvr[i].Server.Clients[client],
+								client,
 							},
 						}
 
@@ -6013,7 +6018,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 
 							err := socks.SendConnectSuccess(Client.Conn, Client.ATYP, Client.IpDomain, Client.Port)
 							if err == nil {
-								Client.Connected = true
+								Client.Connected.Store(true)
 							}
 
 						} else {

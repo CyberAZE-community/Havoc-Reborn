@@ -2,6 +2,7 @@ package agent
 
 import (
 	"sync"
+	"sync/atomic"
 	"net"
 	"os"
 
@@ -124,7 +125,7 @@ type PortFwd struct {
 type SocksClient struct {
 	SocketID  int32
 	Conn      net.Conn
-	Connected bool
+	Connected atomic.Bool
 	ATYP      byte
 	IpDomain  []byte
 	Port      uint16

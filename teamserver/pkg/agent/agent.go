@@ -1119,7 +1119,7 @@ func (a *Agent) SocksClientAdd(SocketID int32, conn net.Conn, ATYP byte, IpDomai
 
 	client.SocketID = SocketID
 	client.Conn = conn
-	client.Connected = false
+	client.Connected.Store(false)
 	client.ATYP = ATYP
 	client.IpDomain = IpDomain
 	client.Port = Port
@@ -1164,7 +1164,7 @@ func (a *Agent) SocksClientRead(client *SocksClient) ([]byte, error) {
 
 	if client != nil {
 		if client.Conn != nil {
-			if client.Connected {
+			if client.Connected.Load() {
 
 				/* read from our socket to the data buffer or return error */
 				client.Conn.SetReadDeadline(time.Time{})
