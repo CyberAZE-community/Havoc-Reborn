@@ -644,64 +644,64 @@ func (t *Teamserver) handleRequest(id string) {
 		}
 	}
 
-	isExist := false
-
 	// the duplicate-login check and the username assignment have to happen
 	// atomically, otherwise two concurrent logins as the same user both
-	// pass the check (TOCTOU)
-	t.LoginMutex.Lock()
+	// pass the check (TOCTOU). runs in a closure with a deferred unlock so
+	// a panic in this section can never leave LoginMutex held forever,
+	// permanently deadlocking every subsequent login
+	authenticated := func() bool {
+		t.LoginMutex.Lock()
+		defer t.LoginMutex.Unlock()
 
-	t.Clients.Range(func(key, value any) bool {
-		if value.(*Client).Username == pk.Head.User {
-			err := t.SendEvent(id, events.UserAlreadyExits())
-			if err != nil {
-				logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
+		isExist := false
+
+		t.Clients.Range(func(key, value any) bool {
+			if value.(*Client).Username == pk.Head.User {
+				err := t.SendEvent(id, events.UserAlreadyExits())
+				if err != nil {
+					logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
+				}
+				t.RemoveClient(id)
+				isExist = true
+				return false
 			}
-			t.RemoveClient(id)
-			isExist = true
+			return true
+		})
+		if isExist {
 			return false
 		}
-		return true
-	})
-	if isExist {
-		t.LoginMutex.Unlock()
-		return
-	}
-	User, ok := pk.Body.Info["User"].(string)
-	if !ok {
-		t.LoginMutex.Unlock()
-		logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
-		t.RemoveClient(id)
-		return
-	}
+		User, ok := pk.Body.Info["User"].(string)
+		if !ok {
+			logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
+			t.RemoveClient(id)
+			return false
+		}
 
-	if t.LoginThrottled(client.GlobalIP) {
-		t.LoginMutex.Unlock()
-		logger.Error("Client [User: " + User + "] login attempt from throttled IP (" + colors.Red(client.GlobalIP) + ")")
-		err := t.SendEvent(id, events.Authenticated(false))
-		if err != nil {
-			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+		if t.LoginThrottled(client.GlobalIP) {
+			logger.Error("Client [User: " + User + "] login attempt from throttled IP (" + colors.Red(client.GlobalIP) + ")")
+			err := t.SendEvent(id, events.Authenticated(false))
+			if err != nil {
+				logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+			}
+			if err = client.Connection.Close(); err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
+			return false
 		}
-		if err = client.Connection.Close(); err != nil {
-			logger.Error("Failed to close client (" + id + ") socket")
-		}
-		return
-	}
 
-	if !t.ClientAuthenticate(pk) {
-		t.LoginMutex.Unlock()
-		t.LoginFailure(client.GlobalIP)
-		logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
-		err := t.SendEvent(id, events.Authenticated(false))
-		if err != nil {
-			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+		if !t.ClientAuthenticate(pk) {
+			t.LoginFailure(client.GlobalIP)
+			logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
+			err := t.SendEvent(id, events.Authenticated(false))
+			if err != nil {
+				logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+			}
+			err = client.Connection.Close()
+			if err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
+			return false
 		}
-		err = client.Connection.Close()
-		if err != nil {
-			logger.Error("Failed to close client (" + id + ") socket")
-		}
-		return
-	} else {
 
 		logger.Good("User <" + colors.Blue(User) + "> " + colors.Green("Authenticated"))
 
@@ -709,14 +709,18 @@ func (t *Teamserver) handleRequest(id string) {
 		client.ClientID = id
 		client.Username = User
 
-		t.LoginMutex.Unlock()
+		return true
+	}()
 
-		t.LoginSuccess(client.GlobalIP)
+	if !authenticated {
+		return
+	}
 
-		err := t.SendEvent(id, events.Authenticated(true))
-		if err != nil {
-			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message:" + colors.Red(err))
-		}
+	t.LoginSuccess(client.GlobalIP)
+
+	err = t.SendEvent(id, events.Authenticated(true))
+	if err != nil {
+		logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message:" + colors.Red(err))
 	}
 	packageNewUser := events.ChatLog.NewUserConnected(client.Username)
 	t.EventAppend(packageNewUser)
