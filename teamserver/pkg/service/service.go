@@ -28,8 +28,20 @@ func NewService(engine *gin.Engine) *Service {
 	var service = new(Service)
 
 	service.engine = engine
+	service.agentOwners = make(map[string]*ClientService)
 
 	return service
+}
+
+// OwnsAgent reports whether the given service client registered the agent
+// with the given NameID. Agents that are not tracked (e.g. operator
+// registered Demons) are not owned by any service client.
+func (s *Service) OwnsAgent(client *ClientService, NameID string) bool {
+	s.agentOwnersMtx.Lock()
+	defer s.agentOwnersMtx.Unlock()
+
+	owner, ok := s.agentOwners[NameID]
+	return ok && owner == client
 }
 
 func (s *Service) Start() {
@@ -247,6 +259,13 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 					if Agent["NameID"] == srvAgent.NameID {
 
+						// only the service client that registered this
+						// agent is allowed to task it
+						if !s.OwnsAgent(client, srvAgent.NameID) {
+							logger.Debug("service client tried to task an agent it doesn't own: " + srvAgent.NameID)
+							return
+						}
+
 						CommandB64, ok := response["Body"]["Command"].(string)
 						if !ok {
 							logger.Debug("response BodyAgentTask Command is not a string")
@@ -276,6 +295,14 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 					for _, srvAgent := range s.Data.ServerAgents.Snapshot() {
 
 						if Agent["NameID"] == srvAgent.NameID {
+
+							// only the service client that registered this
+							// agent is allowed to pull its task queue
+							if !s.OwnsAgent(client, srvAgent.NameID) {
+								logger.Debug("service client tried to pull tasks for an agent it doesn't own: " + srvAgent.NameID)
+								return
+							}
+
 							logger.Debug("Found agent")
 							var (
 								TasksQueue    = srvAgent.GetQueuedJobs()
@@ -364,6 +391,11 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			AgentInstance.Info.MagicValue = Header.MagicValue
 			// AgentInstance.Info.Listener   = h
 
+			// bind the agent to the service client that registered it
+			s.agentOwnersMtx.Lock()
+			s.agentOwners[AgentInstance.NameID] = client
+			s.agentOwnersMtx.Unlock()
+
 			s.Teamserver.AgentAdd(AgentInstance)
 
 			pk := events.Demons.NewDemon(AgentInstance)
@@ -428,6 +460,13 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			Callback, ok := response["Body"]["Callback"].(map[string]any)
 			if !ok {
 				logger.Debug("response BodyAgentOutput Callback is not an object")
+				return
+			}
+
+			// only the service client that registered this agent is
+			// allowed to inject console output for it
+			if !s.OwnsAgent(client, AgentID) {
+				logger.Debug("service client tried to inject output for an agent it doesn't own: " + AgentID)
 				return
 			}
 
@@ -859,6 +898,15 @@ func (s *Service) ClientClose(client *ClientService) {
 					}
 				}
 			}
+
+			// drop agent ownership records
+			s.agentOwnersMtx.Lock()
+			for nameID, owner := range s.agentOwners {
+				if owner == client {
+					delete(s.agentOwners, nameID)
+				}
+			}
+			s.agentOwnersMtx.Unlock()
 
 			// close client connection
 			if s.clients[i].Conn != nil {

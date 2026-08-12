@@ -45,7 +45,15 @@ type Service struct {
 	Teamserver Teamserver
 	Agents     []*AgentService
 	Listeners  []*ListenerService
-	Data       struct {
+
+	// agentOwners binds service-registered agents (by NameID) to the
+	// service client that registered them, so one service client cannot
+	// task or inject output for another client's agent — or for
+	// operator-registered (Demon) agents
+	agentOwners    map[string]*ClientService
+	agentOwnersMtx sync.Mutex
+
+	Data struct {
 		ServerAgents *agent.Agents
 	}
 }
