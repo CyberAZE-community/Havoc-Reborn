@@ -62,6 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: `havoc.Demon( DemonID )` with an unknown ID returned a successfully-constructed object with all-NULL string members (later `QString::compare( NULL )` UB); it now raises `KeyError` and fails construction. (#65)
 - Client: `Packager::DecodePackage` leaked the allocated `Package` on malformed JSON and returned it with uninitialized scalar members; it is now value-initialized and freed on the error path. (#76)
 - Client: base64 payloads from the network were decoded without any size bound; decoding now goes through `Util::base64_decode_capped`, which drops payloads over 256 MiB encoded (~192 MiB decoded). (#77)
+- Client: removed the dead `HavocUi::NewTeamserverTab( ConnectionInfo* )` overload, which shallow-copied the `ConnectionInfo` struct (including raw pointers) into the global `HavocX::Teamserver`, aliasing/dangling once the source was freed; the live path (`QString` overload) uses the global directly. (#78)
 
 ## [0.7.2] - 2026-08-07
 

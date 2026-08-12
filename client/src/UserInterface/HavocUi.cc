@@ -576,16 +576,6 @@ void HavocNamespace::UserInterface::HavocUi::setDBManager(HavocSpace::DBManager*
     this->dbManager = dbManager;
 }
 
-void UserInterface::HavocUi::NewTeamserverTab(HavocNamespace::Util::ConnectionInfo* Connection )
-{
-    Connection->TabSession = new UserInterface::Widgets::TeamserverTabSession;
-    Connection->TabSession->setupUi( new QWidget, Connection->Name );
-
-    int id = TeamserverTabWidget->addTab( Connection->TabSession->PageWidget, Connection->Name );
-    TeamserverTabWidget->setCurrentIndex( id );
-    HavocX::Teamserver = *Connection;
-}
-
 void UserInterface::HavocUi::NewTeamserverTab(QString Name )
 {
     HavocX::Teamserver.TabSession = new UserInterface::Widgets::TeamserverTabSession;
