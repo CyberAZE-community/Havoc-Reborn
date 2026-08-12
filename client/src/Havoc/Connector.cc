@@ -1,5 +1,7 @@
 #include <Havoc/Connector.hpp>
 #include <Havoc/Havoc.hpp>
+#include <UserInterface/HavocUI.hpp>
+#include <UserInterface/Dialogs/Connect.hpp>
 #include <QCryptographicHash>
 #include <QMap>
 #include <QBuffer>
@@ -58,11 +60,23 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
     QObject::connect( Socket, &QWebSocket::disconnected, this, [&]()
     {
-        MessageBox( "Teamserver error", Socket->errorString(), QMessageBox::Critical );
+        MessageBox( "Teamserver error", "Lost connection to the teamserver: " + Socket->errorString(), QMessageBox::Critical );
 
         Socket->close();
 
-        Havoc::Exit();
+        /* graceful handling: return to the connect dialog instead of
+         * killing the whole client */
+        auto Connect = new UserInterface::Dialogs::Connect;
+
+        Connect->TeamserverList = HavocX::HavocUserInterface->dbManager->listTeamservers();
+        Connect->passDB( HavocX::HavocUserInterface->dbManager );
+        Connect->setupUi( new QDialog );
+
+        /* StartDialog installs the new Connector and global teamserver
+         * state itself on success; on cancel the old state is kept */
+        Connect->StartDialog( true );
+
+        delete Connect;
     } );
 
     Socket->open( QUrl( Server ) );
