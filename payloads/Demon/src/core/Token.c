@@ -761,7 +761,10 @@ VOID AddUserToken(
         }
     }
 
-    // TODO: while unlikely, this could overflow
+    // the Tokens table has room for BUF_SIZE entries. don't overflow it
+    if ( *NumTokens >= BUF_SIZE )
+        return;
+
     StringCopyW( Tokens[ *NumTokens ].username, NewToken->username );
     Tokens[ *NumTokens ].dwProcessID = NewToken->dwProcessID;
     Tokens[ *NumTokens ].localHandle = NewToken->localHandle;
