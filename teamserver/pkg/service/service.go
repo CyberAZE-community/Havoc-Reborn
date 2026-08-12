@@ -234,9 +234,9 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 			if Task == "Add" {
 
-				for index := range s.Data.ServerAgents.Agents {
+				for _, srvAgent := range s.Data.ServerAgents.Snapshot() {
 
-					if Agent["NameID"] == s.Data.ServerAgents.Agents[index].NameID {
+					if Agent["NameID"] == srvAgent.NameID {
 
 						var Command, err = base64.StdEncoding.DecodeString(response["Body"]["Command"].(string))
 						if err != nil {
@@ -247,7 +247,7 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 							Payload: Command,
 						}
 
-						s.Data.ServerAgents.Agents[index].AddJobToQueue(TaskJob)
+						srvAgent.AddJobToQueue(TaskJob)
 
 					}
 
@@ -257,12 +257,12 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 				if _, ok := response["Body"]["TasksQueue"]; !ok {
 
-					for index := range s.Data.ServerAgents.Agents {
+					for _, srvAgent := range s.Data.ServerAgents.Snapshot() {
 
-						if Agent["NameID"] == s.Data.ServerAgents.Agents[index].NameID {
+						if Agent["NameID"] == srvAgent.NameID {
 							logger.Debug("Found agent")
 							var (
-								TasksQueue    = s.Data.ServerAgents.Agents[index].GetQueuedJobs()
+								TasksQueue    = srvAgent.GetQueuedJobs()
 								PayloadBuffer []byte
 							)
 
@@ -277,7 +277,7 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 								return
 							}
 
-							s.Data.ServerAgents.Agents[index].Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
+							srvAgent.Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
 
 							logger.Debug("Wrote to the client")
 

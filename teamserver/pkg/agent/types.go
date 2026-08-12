@@ -210,7 +210,20 @@ type AgentInfo struct {
 }
 
 type Agents struct {
+	m      sync.RWMutex
 	Agents []*Agent
+}
+
+// Snapshot returns a copy of the agent slice that is safe to iterate
+// while other goroutines append new agents.
+func (agents *Agents) Snapshot() []*Agent {
+	agents.m.RLock()
+	defer agents.m.RUnlock()
+
+	snapshot := make([]*Agent, len(agents.Agents))
+	copy(snapshot, agents.Agents)
+
+	return snapshot
 }
 
 var InjectErrors = map[int]string{

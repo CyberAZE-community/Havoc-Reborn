@@ -35,7 +35,7 @@ func (t *Teamserver) UnlinkFromAll(Agent *agent.Agent) {
 	}
 
 	// remove agent from parent's link
-	for _, ParentAgent := range t.Agents.Agents {
+	for _, ParentAgent := range t.Agents.Snapshot() {
 		if ParentAgent.NameID == Agent.NameID {
 			continue
 		}
@@ -159,7 +159,7 @@ func (t *Teamserver) AgentCallbackSize(DemonInstance *agent.Agent, i int) {
 }
 
 func (t *Teamserver) AgentInstance(AgentID int) *agent.Agent {
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		var NameID, _ = strconv.ParseInt(demon.NameID, 16, 64)
 
 		if AgentID == int(NameID) {
@@ -187,7 +187,7 @@ func (t *Teamserver) AgentLastTimeCalled(AgentID string, LastCallback string, Sl
 }
 
 func (t *Teamserver) AgentExist(AgentID int) bool {
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		var NameID, err = strconv.ParseInt(demon.NameID, 16, 64)
 		if err != nil {
 			logger.Debug("Failed to convert demon.NameID to int: " + err.Error())

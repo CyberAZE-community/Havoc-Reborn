@@ -875,7 +875,7 @@ func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {
 	}
 
 	// send all the agents that are alive right now to the new client
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		if demon.Active == false {
 			continue
 		}
