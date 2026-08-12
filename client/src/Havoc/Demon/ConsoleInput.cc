@@ -2371,7 +2371,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
             if ( DemonConsole->SessionInfo.PivotParent.size() > 0 )
             {
-                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name + "]";
+                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent.toHtmlEscaped() + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name.toHtmlEscaped() + "]";
             }
             else
             {
@@ -2379,8 +2379,8 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             }
 
             AgentMessageInfo =
-                    Util::ColorText::Comment( DemonConsole->SessionInfo.First ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper() ) + " authenticated as "+ Util::ColorText::Purple( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ) +
-                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal ) + "] [Process: " + Util::ColorText::Red( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch ) + "] " + PivotStream;
+                    Util::ColorText::Comment( DemonConsole->SessionInfo.First.toHtmlEscaped() ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper().toHtmlEscaped() ) + " authenticated as "+ Util::ColorText::Purple( ( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ).toHtmlEscaped() ) +
+                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal.toHtmlEscaped() ) + "] [Process: " + Util::ColorText::Red( ( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ).toHtmlEscaped() ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch.toHtmlEscaped() ) + "] " + PivotStream;
 
             prev_cursor = DemonConsole->Console->textCursor();
 
@@ -2703,7 +2703,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
             if ( DemonConsole->SessionInfo.PivotParent.size() > 0 )
             {
-                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name + "]";
+                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent.toHtmlEscaped() + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name.toHtmlEscaped() + "]";
             }
             else
             {
@@ -2711,8 +2711,8 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             }
 
             AgentMessageInfo =
-                    Util::ColorText::Comment( DemonConsole->SessionInfo.First ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper() ) + " authenticated as "+ Util::ColorText::Purple( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ) +
-                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal ) + "] [Process: " + Util::ColorText::Red( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch ) + "] " + PivotStream;
+                    Util::ColorText::Comment( DemonConsole->SessionInfo.First.toHtmlEscaped() ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper().toHtmlEscaped() ) + " authenticated as "+ Util::ColorText::Purple( ( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ).toHtmlEscaped() ) +
+                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal.toHtmlEscaped() ) + "] [Process: " + Util::ColorText::Red( ( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ).toHtmlEscaped() ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch.toHtmlEscaped() ) + "] " + PivotStream;
 
             prev_cursor = DemonConsole->Console->textCursor();
 
