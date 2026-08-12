@@ -144,6 +144,10 @@ type Agent struct {
 	Active     bool
 	Reason     string
 
+	// m guards JobQueue, Tasks and Downloads against concurrent access
+	// from HTTP handler, operator-WS and service goroutines
+	m sync.Mutex
+
 	BofCallbacks []*BofCallback
 
 	Info   *AgentInfo

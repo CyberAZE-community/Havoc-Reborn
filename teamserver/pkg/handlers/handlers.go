@@ -112,7 +112,7 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 		}
 
 		/* if there is no job then just reply with a COMMAND_NOJOB */
-		if asked_for_jobs == false || len(Agent.JobQueue) == 0 {
+		if asked_for_jobs == false || Agent.QueuedJobsLen() == 0 {
 			var NoJob = []agent.Job{{
 				Command: agent.COMMAND_NOJOB,
 				Data:    []interface{}{},

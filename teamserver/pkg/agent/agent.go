@@ -627,6 +627,9 @@ func (a *Agent) IsKnownRequestID(teamserver TeamServer, RequestID uint32, Comman
 		return true
 	}
 
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Tasks {
 		if a.Tasks[i].RequestID == RequestID {
 			return true
@@ -637,12 +640,17 @@ func (a *Agent) IsKnownRequestID(teamserver TeamServer, RequestID uint32, Comman
 
 // the operator added a new request/command
 func (a *Agent) AddRequest(job Job) []Job {
+	a.m.Lock()
 	a.Tasks = append(a.Tasks, job)
+	a.m.Unlock()
 	return a.Tasks
 }
 
 // after a request has been completed, we can forget about the RequestID so that it is no longer valid
 func (a *Agent) RequestCompleted(RequestID uint32) {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Tasks {
 		if a.Tasks[i].RequestID == RequestID {
 			a.Tasks = append(a.Tasks[:i], a.Tasks[i+1:]...)
@@ -660,7 +668,9 @@ func (a *Agent) AddJobToQueue(job Job) []Job {
 		a.PivotAddJob(job)
 		// if it's a direct agent add the job to the direct agent
 	} else {
+		a.m.Lock()
 		a.JobQueue = append(a.JobQueue, job)
+		a.m.Unlock()
 	}
 	return a.JobQueue
 }
@@ -669,6 +679,9 @@ func (a *Agent) GetQueuedJobs() []Job {
 	var Jobs []Job
 	var JobsSize = 0
 	var NumJobs = 0
+
+	a.m.Lock()
+	defer a.m.Unlock()
 
 	// make sure we return a number of jobs that doesn't exceed DEMON_MAX_RESPONSE_LENGTH
 	for _, job := range a.JobQueue {
@@ -831,7 +844,9 @@ func (a *Agent) PivotAddJob(job Job) {
 		pivots = &pivots.Parent.Pivots
 	}
 
+	pivots.Parent.m.Lock()
 	pivots.Parent.JobQueue = append(pivots.Parent.JobQueue, PivotJob)
+	pivots.Parent.m.Unlock()
 }
 
 func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
@@ -878,12 +893,17 @@ func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
 
 	download.LocalFile = DemonDownload + "/" + DownloadFile
 
+	a.m.Lock()
 	a.Downloads = append(a.Downloads, download)
+	a.m.Unlock()
 
 	return nil
 }
 
 func (a *Agent) DownloadWrite(FileID int, data []byte) error {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
 			_, err := a.Downloads[i].File.Write(data)
@@ -907,6 +927,9 @@ func (a *Agent) DownloadWrite(FileID int, data []byte) error {
 }
 
 func (a *Agent) DownloadClose(FileID int) {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
 			err := a.Downloads[i].File.Close()
@@ -920,7 +943,26 @@ func (a *Agent) DownloadClose(FileID int) {
 	}
 }
 
+// QueuedJobsLen returns the number of queued jobs, safe for concurrent use.
+func (a *Agent) QueuedJobsLen() int {
+	a.m.Lock()
+	defer a.m.Unlock()
+
+	return len(a.JobQueue)
+}
+
+// DownloadsLen returns the number of active downloads, safe for concurrent use.
+func (a *Agent) DownloadsLen() int {
+	a.m.Lock()
+	defer a.m.Unlock()
+
+	return len(a.Downloads)
+}
+
 func (a *Agent) DownloadGet(FileID int) *Download {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for _, download := range a.Downloads {
 		if download.FileID == FileID {
 			return download

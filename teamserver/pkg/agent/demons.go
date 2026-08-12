@@ -72,7 +72,8 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 			switch Commands[1] {
 
 			case "list":
-				if len(a.JobQueue) > 0 {
+				if a.QueuedJobsLen() > 0 {
+					a.m.Lock()
 					var ListTable string
 
 					ListTable += "\n"
@@ -87,6 +88,7 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 						ListTable += fmt.Sprintf(" %-8s  %-19s  %-8s  %s\n", task.TaskID, task.Created, Size, task.CommandLine)
 					}
 
+					a.m.Unlock()
 					Console(a.NameID, map[string]string{
 						"Type":    "Info",
 						"Message": "List task queue:",
@@ -101,9 +103,11 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 				break
 
 			case "clear":
-				if len(a.JobQueue) > 0 {
+				if a.QueuedJobsLen() > 0 {
+					a.m.Lock()
 					var Jobs = len(a.JobQueue)
 					a.JobQueue = nil
+					a.m.Unlock()
 					Console(a.NameID, map[string]string{
 						"Type":    "Good",
 						"Message": fmt.Sprintf("Cleared task queue [%v]", Jobs),
@@ -3046,7 +3050,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 								Reason   = Parser.ParseInt32()
 							)
 
-							if len(a.Downloads) > 0 {
+							if a.DownloadsLen() > 0 {
 								var download = a.DownloadGet(FileID)
 								if download != nil {
 									FileName = download.FilePath
