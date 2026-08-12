@@ -83,6 +83,10 @@ type Teamserver struct {
 	// EventsMutex guards EventsList append/remove/iterate
 	EventsMutex sync.RWMutex
 
+	// LoginMutex serializes the operator login flow so the
+	// duplicate-username check and its assignment are atomic
+	LoginMutex sync.Mutex
+
 	// EventsListMax bounds the in-memory event history replayed to new
 	// clients; oldest events are dropped once the cap is reached
 	EventsListMax int

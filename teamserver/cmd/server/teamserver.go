@@ -594,6 +594,12 @@ func (t *Teamserver) handleRequest(id string) {
 	}
 
 	isExist := false
+
+	// the duplicate-login check and the username assignment have to happen
+	// atomically, otherwise two concurrent logins as the same user both
+	// pass the check (TOCTOU)
+	t.LoginMutex.Lock()
+
 	t.Clients.Range(func(key, value any) bool {
 		if value.(*Client).Username == pk.Head.User {
 			err := t.SendEvent(id, events.UserAlreadyExits())
@@ -607,16 +613,19 @@ func (t *Teamserver) handleRequest(id string) {
 		return true
 	})
 	if isExist {
+		t.LoginMutex.Unlock()
 		return
 	}
 	User, ok := pk.Body.Info["User"].(string)
 	if !ok {
+		t.LoginMutex.Unlock()
 		logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
 		t.RemoveClient(id)
 		return
 	}
 
 	if !t.ClientAuthenticate(pk) {
+		t.LoginMutex.Unlock()
 		logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
 		err := t.SendEvent(id, events.Authenticated(false))
 		if err != nil {
@@ -633,14 +642,15 @@ func (t *Teamserver) handleRequest(id string) {
 
 		client.Authenticated = true
 		client.ClientID = id
+		client.Username = User
+
+		t.LoginMutex.Unlock()
 
 		err := t.SendEvent(id, events.Authenticated(true))
 		if err != nil {
 			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message:" + colors.Red(err))
 		}
 	}
-
-	client.Username = User
 	packageNewUser := events.ChatLog.NewUserConnected(client.Username)
 	t.EventAppend(packageNewUser)
 	t.EventBroadcast(id, packageNewUser)
