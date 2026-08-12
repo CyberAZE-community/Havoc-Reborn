@@ -136,10 +136,21 @@ PBYTE ParserGetBytes( PPARSER parser, PUINT32 size )
         return NULL;
 
     MemCopy( &Length, parser->Buffer, 4 );
-    parser->Buffer += 4;
 
     if ( parser->Endian )
         Length = __builtin_bswap32( Length );
+
+    /* sanity check the length prefix against what is
+     * actually left in the buffer to avoid OOB reads */
+    if ( Length > parser->Length - 4 )
+    {
+        PRINTF( "ParserGetBytes: invalid length %x (remaining %x)\n", Length, parser->Length );
+        if ( size != NULL )
+            *size = 0;
+        return NULL;
+    }
+
+    parser->Buffer += 4;
 
     outdata = ( PBYTE ) parser->Buffer;
     if ( outdata == NULL )

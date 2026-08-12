@@ -255,7 +255,19 @@ PMEM_FILE NewMemFile( ULONG32 ID, SIZE_T Size, PVOID Data, ULONG32 ReadSize )
 {
     PMEM_FILE MemFile = NULL;
 
-    MemFile           = MmHeapAlloc( sizeof( MEM_FILE ) );
+    /* sanity check the sizes we got from the teamserver.
+     * MmHeapAlloc takes an ULONG so anything bigger than
+     * 4GiB would get truncated. ReadSize must fit into Size. */
+    if ( Size > ( SIZE_T ) ( ULONG ) -1 || ReadSize > Size || ( ReadSize && ! Data ) )
+    {
+        PRINTF( "NewMemFile: invalid sizes Size:[%llx] ReadSize:[%x]\n", ( UINT64 ) Size, ReadSize );
+        return NULL;
+    }
+
+    MemFile = MmHeapAlloc( sizeof( MEM_FILE ) );
+    if ( ! MemFile )
+        return NULL;
+
     MemFile->ID       = ID;
     MemFile->Size     = Size;
     MemFile->Data     = MmHeapAlloc( MemFile->Size );
@@ -265,6 +277,7 @@ PMEM_FILE NewMemFile( ULONG32 ID, SIZE_T Size, PVOID Data, ULONG32 ReadSize )
     if ( ! MemFile->Data )
     {
         PRINTF( "Failed to allocate %lx bytes\n", MemFile->Size );
+        MmHeapFree( MemFile );
         return NULL;
     }
 
@@ -325,6 +338,17 @@ PMEM_FILE MemFileReadChunk( ULONG32 ID, SIZE_T Size, PVOID Data, ULONG32 ReadSiz
         PRINTF( "MemFile with the id %x was not found\n", ID );
         return NULL;
     }
+
+    /* sanity check the chunk against the space that is
+     * actually left in the buffer to avoid a heap overflow */
+    if ( ReadSize > MemFile->Size - MemFile->ReadSize || ( ReadSize && ! Data ) )
+    {
+        PRINTF( "MemFileReadChunk: invalid chunk ReadSize:[%x] Size:[%llx] Read:[%llx]\n", ReadSize, ( UINT64 ) MemFile->Size, ( UINT64 ) MemFile->ReadSize );
+        return NULL;
+    }
+
+    if ( ! ReadSize )
+        return MemFile;
 
     PRINTF( "Copying %x bytes, bytes missing: 0x%x\n", ReadSize, MemFile->Size - MemFile->ReadSize )
     MemCopy( C_PTR( U_PTR( MemFile->Data ) + MemFile->ReadSize ), Data, ReadSize );
