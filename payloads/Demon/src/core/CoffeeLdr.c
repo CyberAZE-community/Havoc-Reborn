@@ -481,6 +481,20 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
 
         for ( DWORD RelocCnt = 0; RelocCnt < Coffee->Section->NumberOfRelocations; RelocCnt++ )
         {
+            /* the BOF is untrusted input. validate the relocation against
+             * the symbol table and the target section before using it */
+            if ( Coffee->Reloc->SymbolTableIndex >= Coffee->Header->NumberOfSymbols )
+            {
+                PRINTF( "Relocation symbol table index %d out of bounds (symbols: %d)\n", Coffee->Reloc->SymbolTableIndex, Coffee->Header->NumberOfSymbols )
+                return FALSE;
+            }
+
+            if ( Coffee->Reloc->VirtualAddress + sizeof( UINT32 ) > Coffee->SecMap[ SectionCnt ].Size )
+            {
+                PRINTF( "Relocation address 0x%x out of bounds (section size: 0x%x)\n", Coffee->Reloc->VirtualAddress, Coffee->SecMap[ SectionCnt ].Size )
+                return FALSE;
+            }
+
             Symbol = &Coffee->Symbol[ Coffee->Reloc->SymbolTableIndex ];
 
             if ( Symbol->First.Value[ 0 ] != 0 )
@@ -502,8 +516,6 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
             RelocAddr = Coffee->SecMap[ SectionCnt ].Ptr + Coffee->Reloc->VirtualAddress;
             // address where the resolved function address will be stored
             FunMapAddr = Coffee->FunMap + ( FuncCount * sizeof( PVOID ) );
-            // the address of the section where the symbol is stored
-            SymbolSectionAddr = Coffee->SecMap[ Symbol->SectionNumber - 1 ].Ptr;
             // type of the symbol
             SymbolType = Symbol->Type;
 
@@ -511,6 +523,22 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
             {
                 PRINTF( "Symbol '%s' couldn't be resolved\n", SymbolName );
                 return FALSE;
+            }
+
+            if ( FuncPtr == NULL )
+            {
+                /* the symbol is defined inside one of the BOF sections.
+                 * validate the section number before indexing SecMap
+                 * (import symbols legitimately have a section number of 0,
+                 * but those take the FuncPtr path above) */
+                if ( Symbol->SectionNumber == 0 || Symbol->SectionNumber > Coffee->Header->NumberOfSections )
+                {
+                    PRINTF( "Symbol section number %d out of bounds (sections: %d)\n", Symbol->SectionNumber, Coffee->Header->NumberOfSections )
+                    return FALSE;
+                }
+
+                // the address of the section where the symbol is stored
+                SymbolSectionAddr = Coffee->SecMap[ Symbol->SectionNumber - 1 ].Ptr;
             }
 
 #if _WIN64
@@ -652,6 +680,14 @@ SIZE_T CoffeeGetFunMapSize( PCOFFEE Coffee )
 
         for ( DWORD RelocCnt = 0; RelocCnt < Coffee->Section->NumberOfRelocations; RelocCnt++ )
         {
+            /* the BOF is untrusted input. skip relocations that point
+             * outside the symbol table */
+            if ( Coffee->Reloc->SymbolTableIndex >= Coffee->Header->NumberOfSymbols )
+            {
+                Coffee->Reloc = C_PTR( U_PTR( Coffee->Reloc ) + sizeof( COFF_RELOC ) );
+                continue;
+            }
+
             Symbol = &Coffee->Symbol[ Coffee->Reloc->SymbolTableIndex ];
 
             if ( Symbol->First.Value[ 0 ] != 0 )
