@@ -324,9 +324,9 @@ func (b *Builder) Build() bool {
 					AsmObj = b.CompileDir + utils.GenerateID(10) + ".o"
 					var AsmCompile string
 					if b.config.Arch == ARCHITECTURE_X64 {
-						AsmCompile = fmt.Sprintf(b.compilerOptions.Config.Nasm+" -f win64 %s -o %s", FilePath, AsmObj)
+						AsmCompile = fmt.Sprintf("%s -f win64 %s -o %s", b.compilerOptions.Config.Nasm, FilePath, AsmObj)
 					} else {
-						AsmCompile = fmt.Sprintf(b.compilerOptions.Config.Nasm+" -f win32 %s -o %s", FilePath, AsmObj)
+						AsmCompile = fmt.Sprintf("%s -f win32 %s -o %s", b.compilerOptions.Config.Nasm, FilePath, AsmObj)
 					}
 					logger.Debug(AsmCompile)
 					b.FilesCreated = append(b.FilesCreated, AsmObj)
@@ -616,6 +616,16 @@ func (b *Builder) PatchConfig() ([]byte, error) {
 	if b.FileType == FILETYPE_WINDOWS_SERVICE_EXE {
 		if val, ok := b.config.Config["Service Name"].(string); ok {
 			if len(val) > 0 {
+				// the service name ends up in a define that is passed to a
+				// shell compile command. reject anything outside a strict
+				// charset to avoid shell injection into the build command.
+				if !isSafeServiceName(val) {
+					err = errors.New("Service Name contains invalid characters (allowed: letters, digits, space, '.', '-', '_')")
+					if !b.silent {
+						b.SendConsoleMessage("Error", err.Error())
+					}
+					return nil, err
+				}
 				b.compilerOptions.Defines = append(b.compilerOptions.Defines, "SERVICE_NAME=\\\""+val+"\\\"")
 				if !b.silent {
 					b.SendConsoleMessage("Info", "set service name to "+val)
@@ -1129,4 +1139,16 @@ func (b *Builder) DeletePayload() {
 			}
 		}
 	}
+}
+
+// isSafeServiceName reports whether s only contains characters that are safe
+// to embed into the shell compile command (SERVICE_NAME define).
+func isSafeServiceName(s string) bool {
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '.' || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }

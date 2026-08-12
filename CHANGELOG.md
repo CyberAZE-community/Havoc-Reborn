@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Teamserver: post-auth RCE via the payload `Service Name` option — the value was interpolated unescaped into the `SERVICE_NAME` define of a `sh -c` compile command; it is now restricted to letters, digits, space, `.`, `-`, `_` and rejected otherwise. Also fixed the nasm path being used as a `fmt.Sprintf` format string. (#41)
 - Vendored `yaotl/hclsyntax` parser had unreachable code (`return nil, nil` after a switch whose branches all return), which failed `go vet ./...` and broke the new CI; the dead statement is removed.
 
 ## [0.7.2] - 2026-08-07
