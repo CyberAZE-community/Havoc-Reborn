@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"Havoc/pkg/common"
@@ -1210,19 +1211,28 @@ func (a *Agent) SocksServerRemove(Addr string) {
 }
 
 // ToMap returns the agent info as a map
+// toMapMtx serializes ToMap calls: marshalling temporarily strips the
+// pivot parent from the shared agent struct (see ToMap).
+var toMapMtx sync.Mutex
+
 func (a *Agent) ToMap() map[string]interface{} {
 	var (
-		Info       map[string]any
-		MagicValue string
+		ParentAgent *Agent
+		Info        map[string]any
+		MagicValue  string
 	)
 
-	// marshal a shallow copy with the pivot parent stripped instead of
-	// temporarily mutating the shared agent struct, which races with
-	// concurrent ToMap calls
-	copied := *a
-	copied.Pivots.Parent = nil
+	// the pivot parent has to be stripped to avoid recursive marshalling.
+	// serialize ToMap calls so concurrent callers don't interleave the
+	// temporary mutation of the shared agent struct.
+	toMapMtx.Lock()
+	ParentAgent = a.Pivots.Parent
+	a.Pivots.Parent = nil
 
-	Info = structs.Map(&copied)
+	Info = structs.Map(a)
+
+	a.Pivots.Parent = ParentAgent
+	toMapMtx.Unlock()
 
 	Info["Info"].(map[string]interface{})["Listener"] = nil
 
@@ -1233,8 +1243,8 @@ func (a *Agent) ToMap() map[string]interface{} {
 
 	MagicValue = fmt.Sprintf("%08x", a.Info.MagicValue)
 
-	if a.Pivots.Parent != nil {
-		Info["PivotParent"] = a.Pivots.Parent.NameID
+	if ParentAgent != nil {
+		Info["PivotParent"] = ParentAgent.NameID
 	}
 
 	Info["MagicValue"] = MagicValue
@@ -1257,7 +1267,9 @@ func (a *Agent) ToJson() string {
 }
 
 func (agents *Agents) AgentsAppend(demon *Agent) []*Agent {
+	agents.m.Lock()
 	agents.Agents = append(agents.Agents, demon)
+	agents.m.Unlock()
 	return agents.Agents
 }
 
