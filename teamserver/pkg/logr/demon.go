@@ -3,7 +3,6 @@ package logr
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +34,8 @@ func (l Logr) AddAgentInput(AgentType, AgentID, User, TaskID, Input string, time
 
 	f, err := os.OpenFile(DemonLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to open log file [" + DemonLogFile + "]: " + err.Error())
+		return
 	}
 	defer f.Close()
 
@@ -70,7 +70,8 @@ func (l Logr) AddAgentRaw(AgentID, Raw string) {
 
 	f, err := os.OpenFile(DemonLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to open log file [" + DemonLogFile + "]: " + err.Error())
+		return
 	}
 	defer f.Close()
 
@@ -103,7 +104,8 @@ func (l Logr) DemonAddOutput(DemonID string, Output map[string]string, time stri
 
 	f, err := os.OpenFile(DemonLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("Failed to open log file [" + DemonLogFile + "]: " + err.Error())
+		return
 	}
 	defer f.Close()
 
