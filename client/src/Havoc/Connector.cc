@@ -32,6 +32,35 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
         Socket->setSslConfiguration( SslConf );
     }
 
+    QObject::connect( Socket, QOverload<QAbstractSocket::SocketError>::of( &QWebSocket::error ), this, [&]( QAbstractSocket::SocketError )
+    {
+        ErrorString = Socket->errorString();
+
+        /* if the connection never got established (refused, TLS failure,
+         * closed during login) no disconnected() signal follows in most of
+         * these cases: return to the connect dialog here so the client never
+         * just sits dead or exits on a login-screen error */
+        if ( Packager == nullptr && HavocX::HavocUserInterface != nullptr )
+        {
+            MessageBox( "Connection error", "Couldn't connect to the teamserver: " + ErrorString, QMessageBox::Critical );
+
+            auto Connect = new UserInterface::Dialogs::Connect;
+
+            Connect->TeamserverList = HavocX::HavocUserInterface->dbManager->listTeamservers();
+            Connect->passDB( HavocX::HavocUserInterface->dbManager );
+            Connect->setupUi( new QDialog );
+
+            Connect->StartDialog( true );
+
+            delete Connect;
+
+            if ( HavocX::Connector == this )
+                HavocX::Connector = nullptr;
+
+            this->deleteLater();
+        }
+    } );
+
     QObject::connect( Socket, &QWebSocket::binaryMessageReceived, this, [&]( const QByteArray& Message )
     {
         auto Package = HavocSpace::Packager::DecodePackage( Message );

@@ -228,7 +228,15 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
             spdlog::info( "Connecting to profile: {}", ProfileName );
         } else {
             spdlog::critical( "Couldn't connect to profile: {}", ProfileName );
-            Havoc::Exit();
+
+            /* never kill the client over a login-screen error: report it
+             * and stay at the connect dialog so the user can retry */
+            auto MessageBox = QMessageBox();
+            MessageBox.setWindowTitle( "Connection error" );
+            MessageBox.setText( "Couldn't connect to the teamserver: " + ConnectionInstant->ErrorString );
+            MessageBox.setIcon( QMessageBox::Critical );
+            MessageBox.setStyleSheet( FileRead( ":/stylesheets/MessageBox" ) );
+            MessageBox.exec();
         }
 
     } else {
