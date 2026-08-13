@@ -262,6 +262,14 @@ func generateCertificate(caType string, subject pkix.Name, isCA bool, isClient b
         if ip := net.ParseIP(subject.CommonName); ip != nil {
             logger.Debug(fmt.Sprintf("Certificate authenticates IP address: %v", ip))
             template.IPAddresses = append(template.IPAddresses, ip)
+
+            // a wildcard/bind address cert is useless for clients dialing loopback;
+            // always add loopback SANs so 127.0.0.1/::1 connections verify too
+            if ip.IsUnspecified() {
+                logger.Debug("Bind address is unspecified, adding loopback SANs")
+                template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"), net.ParseIP("::1"))
+                template.DNSNames = append(template.DNSNames, "localhost")
+            }
         } else {
             logger.Debug(fmt.Sprintf("Certificate authenticates host: %v", subject.CommonName))
             template.DNSNames = append(template.DNSNames, subject.CommonName)

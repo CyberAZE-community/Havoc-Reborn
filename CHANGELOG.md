@@ -121,6 +121,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Client: the teamserver logger's `QDialog` was created unparented and leaked for every teamserver tab; it is now parented to the tab session widget. `DispatchListener::Remove` also dereferenced `ListenerTableWidget` without a null check and now guards it. (#95)
 - Client: named the `InitConnection` sub-event constants `InitInfo` (0x4) and `Profile` (0x5) to match the teamserver protocol, replacing the magic `case 0x5` literal in `DispatchInitConnection`; no values were renumbered and the teamserver side is unchanged. (#102)
 - Client: `DispatchTeamserver`'s `Logger` case fell through into the `Profile` case for lack of a `break`, and `Util::gen_random` generated TaskIDs by shuffling a 16-character alphabet (no repeated characters, silently truncated above 16 chars); the `break` was added and TaskIDs are now drawn per-character from `QRandomGenerator`. (#63)
+- Teamserver: the generated TLS certificate only carried the bind address (`Teamserver.Host`, typically `0.0.0.0`) as its SAN, so clients dialing `127.0.0.1`/`localhost` failed hostname verification (`The host name did not match any of the valid hosts for this certificate`). When the bind address is unspecified, the cert now also includes `127.0.0.1`, `::1` and `localhost` SANs. Delete `data/server.cert`/`data/server.key` (or just restart — the cert is regenerated on every start) to pick this up.
 
 ### Changed
 
