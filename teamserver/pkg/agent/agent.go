@@ -788,7 +788,7 @@ func (a *Agent) PivotAddJob(job Job) {
 	)
 
 	// core package that the end pivot receive
-	AgentID, err = strconv.ParseInt(a.NameID, 16, 32)
+	AgentID, err = strconv.ParseInt(a.NameID, 16, 64)
 	if err != nil {
 		logger.Debug("Failed to convert NameID string to AgentID: " + err.Error())
 		return
@@ -823,7 +823,7 @@ func (a *Agent) PivotAddJob(job Job) {
 		Payload = BuildPayloadMessage([]Job{PivotJob}, pivots.Parent.Encryption.AESKey, pivots.Parent.Encryption.AESIv)
 		Packer = packer.NewPacker(nil, nil)
 
-		AgentID, err = strconv.ParseInt(pivots.Parent.NameID, 16, 32)
+		AgentID, err = strconv.ParseInt(pivots.Parent.NameID, 16, 64)
 		if err != nil {
 			logger.Debug("Failed to convert NameID string to AgentID: " + err.Error())
 			return

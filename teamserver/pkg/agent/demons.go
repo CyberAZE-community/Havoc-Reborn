@@ -1577,7 +1577,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case DEMON_PIVOT_SMB_DISCONNECT:
-			var AgentID, err = strconv.ParseInt(Param, 16, 32)
+			var AgentID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1624,7 +1624,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "stop":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1636,7 +1636,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "resume":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1648,7 +1648,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "remove":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1738,7 +1738,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		case "rportfwd remove":
 			var SocketID int64
 
-			SocketID, err = strconv.ParseInt(Param, 16, 32)
+			SocketID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}

@@ -371,12 +371,12 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				AgentID = val
 			}
 
-			MagicValue64, err := strconv.ParseInt(MagicValue, 16, 32)
+			MagicValue64, err := strconv.ParseInt(MagicValue, 16, 64)
 			if err != nil {
 				logger.Error("MagicValue64: " + err.Error())
 			}
 
-			AgentID64, err := strconv.ParseInt(AgentID, 16, 32)
+			AgentID64, err := strconv.ParseInt(AgentID, 16, 64)
 			if err != nil {
 				logger.Error("MagicValue64: " + err.Error())
 			}

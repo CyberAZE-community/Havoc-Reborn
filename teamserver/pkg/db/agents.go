@@ -14,7 +14,7 @@ func (db *DB) AgentAdd(agent *agent.Agent) error {
 	var err error
 	var AgentID int64
 
-	AgentID, err = strconv.ParseInt(agent.NameID, 16, 32)
+	AgentID, err = strconv.ParseInt(agent.NameID, 16, 64)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (db *DB) AgentUpdate(agent *agent.Agent) error {
 	var AgentID int64
 	var active int
 
-	AgentID, err = strconv.ParseInt(agent.NameID, 16, 32)
+	AgentID, err = strconv.ParseInt(agent.NameID, 16, 64)
 	if err != nil {
 		return err
 	}
