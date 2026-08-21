@@ -5,11 +5,11 @@ Teamserver {
 
 Operators {
 	user "5pider" {
-		Password = "password1234"
+		Password = "CHANGE-ME-OPERATOR-PASSWORD"
 	}
 
 	user "Neo" {
-		Password = "password1234"
+		Password = "CHANGE-ME-OPERATOR-PASSWORD"
 	}
 }
 

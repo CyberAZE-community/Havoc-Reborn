@@ -49,6 +49,11 @@ void HavocNamespace::UserInterface::Widgets::PythonScriptInterpreter::RunCode( Q
 {
     std::string buffer;
     emb::stdout_write_type write = [&] (std::string s) { buffer += s; };
+
+    /* set_stdout/reset_stdout touch sys.stdout through the C API, so
+     * they must run while the GIL is held */
+    auto GilState = PyGILState_Ensure();
+
     emb::set_stdout(write);
 
     if ( PyRun_SimpleStringFlags( code.toStdString().c_str(), NULL ) == -1 )
@@ -57,6 +62,8 @@ void HavocNamespace::UserInterface::Widgets::PythonScriptInterpreter::RunCode( Q
     }
 
     emb::reset_stdout();
+
+    PyGILState_Release( GilState );
 
     if ( buffer.size() > 0 )
         this->PythonScriptOutput->appendPlainText( buffer.c_str() );

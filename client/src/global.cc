@@ -10,7 +10,7 @@ using namespace std;
 using namespace HavocNamespace;
 using namespace HavocNamespace::HavocSpace;
 
-string HavocNamespace::Version  = "0.7.2";
+string HavocNamespace::Version  = "0.8.0";
 string HavocNamespace::CodeName = "Bites The Dust";
 
 // Global Variables in the Havoc Namespace
@@ -40,6 +40,18 @@ std::string Util::gen_random( const int len )
         out += str[ QRandomGenerator::global()->bounded( (int) str.size() ) ];
 
     return out;
+}
+
+QByteArray Util::base64_decode_capped( const QByteArray& Data )
+{
+    /* 256 MiB of encoded text (~192 MiB decoded) */
+    if ( Data.size() > Util::Base64PayloadCap )
+    {
+        spdlog::warn( "dropping oversized base64 payload ({} bytes encoded)", Data.size() );
+        return QByteArray();
+    }
+
+    return QByteArray::fromBase64( Data );
 }
 
 void Util::SessionItem::Export()

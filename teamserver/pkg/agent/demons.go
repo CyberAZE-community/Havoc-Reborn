@@ -72,7 +72,8 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 			switch Commands[1] {
 
 			case "list":
-				if len(a.JobQueue) > 0 {
+				if a.QueuedJobsLen() > 0 {
+					a.m.Lock()
 					var ListTable string
 
 					ListTable += "\n"
@@ -87,6 +88,7 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 						ListTable += fmt.Sprintf(" %-8s  %-19s  %-8s  %s\n", task.TaskID, task.Created, Size, task.CommandLine)
 					}
 
+					a.m.Unlock()
 					Console(a.NameID, map[string]string{
 						"Type":    "Info",
 						"Message": "List task queue:",
@@ -101,9 +103,11 @@ func (a *Agent) TeamserverTaskPrepare(Command string, Console func(AgentID strin
 				break
 
 			case "clear":
-				if len(a.JobQueue) > 0 {
+				if a.QueuedJobsLen() > 0 {
+					a.m.Lock()
 					var Jobs = len(a.JobQueue)
 					a.JobQueue = nil
+					a.m.Unlock()
 					Console(a.NameID, map[string]string{
 						"Type":    "Good",
 						"Message": fmt.Sprintf("Cleared task queue [%v]", Jobs),
@@ -624,11 +628,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_PROC_LIST:
 		var (
-			ProcessUI = Optional["FromProcessManager"].(string)
-			Value     = win32.FALSE
+			Value = win32.FALSE
 		)
 
-		if ProcessUI == "true" {
+		/* third-party clients may omit this field; default to console mode
+		 * instead of panicking the handler goroutine */
+		if ProcessUI, ok := Optional["FromProcessManager"].(string); ok && ProcessUI == "true" {
 			Value = win32.TRUE
 		}
 
@@ -1573,7 +1578,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case DEMON_PIVOT_SMB_DISCONNECT:
-			var AgentID, err = strconv.ParseInt(Param, 16, 32)
+			var AgentID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1620,7 +1625,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "stop":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1632,7 +1637,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "resume":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1644,7 +1649,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			break
 
 		case "remove":
-			FileID, err = strconv.ParseInt(Param, 16, 32)
+			FileID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1734,7 +1739,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		case "rportfwd remove":
 			var SocketID int64
 
-			SocketID, err = strconv.ParseInt(Param, 16, 32)
+			SocketID, err = strconv.ParseInt(Param, 16, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -1785,7 +1790,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				return nil, errors.New("a socks5 proxy on that port already exists")
 			}
 
-			Socks = socks.NewSocks("0.0.0.0:" + Param)
+			// bind to localhost only: an unauthenticated socks5 proxy on
+			// all interfaces would be an open relay. use port forwards
+			// if remote access is needed.
+			Socks = socks.NewSocks("127.0.0.1:" + Param)
 			if Socks == nil {
 				return nil, errors.New("failed to create a new socks5 instance")
 			}
@@ -1863,7 +1871,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				/* generate some random socket id */
 				SocketId = int32(rand.Uint32())
 
-				s.Clients = append(s.Clients, SocketId)
+				s.ClientsAdd(SocketId)
 
 				a.SocksClientAdd(SocketId, conn, SocksHeader.ATYP, SocksHeader.IpDomain, SocksHeader.Port)
 
@@ -1889,8 +1897,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 						/* check if the connection is still up */
 						if client := a.SocksClientGet(SocketId); client != nil {
 
-							if !client.Connected {
-								/* if we are still not connected then skip */
+							if !client.Connected.Load() {
+								/* if we are still not connected then wait a
+								 * bit instead of busy-spinning at 100% CPU */
+								time.Sleep(50 * time.Millisecond)
 								continue
 							}
 
@@ -1917,25 +1927,25 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 							} else {
 
 								if err != io.EOF {
-
 									/* we failed to read from the socks proxy */
 									logger.Error(fmt.Sprintf("Failed to read from socket %08x: %v", SocketId, err))
-
-									a.SocksClientClose(int32(SocketId))
-
-									/* make a new job */
-									var job = Job{
-										Command: COMMAND_SOCKET,
-										Data: []any{
-											SOCKET_COMMAND_CLOSE,
-											int32(SocketId),
-										},
-									}
-
-									/* append the job to the task queue */
-									a.AddJobToQueue(job)
-
 								}
+
+								/* always close on error/EOF, otherwise the
+								 * local socket leaks */
+								a.SocksClientClose(int32(SocketId))
+
+								/* make a new job */
+								var job = Job{
+									Command: COMMAND_SOCKET,
+									Data: []any{
+										SOCKET_COMMAND_CLOSE,
+										int32(SocketId),
+									},
+								}
+
+								/* append the job to the task queue */
+								a.AddJobToQueue(job)
 
 								break
 							}
@@ -2046,17 +2056,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					a.SocksSvr[i].Server.Close()
 
 					/* close every connection that the agent has with this socks proxy */
-					for client := range a.SocksSvr[i].Server.Clients {
+					for _, client := range a.SocksSvr[i].Server.ClientsSnapshot() {
 
 						/* close the client connection */
-						a.SocksClientClose(a.SocksSvr[i].Server.Clients[client])
+						a.SocksClientClose(client)
 
 						/* make a new job */
 						var job = Job{
 							Command: COMMAND_SOCKET,
 							Data: []any{
 								SOCKET_COMMAND_CLOSE,
-								a.SocksSvr[i].Server.Clients[client],
+								client,
 							},
 						}
 
@@ -2109,17 +2119,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				a.SocksSvr[i].Server.Close()
 
 				/* close every connection that the agent has with this socks proxy */
-				for client := range a.SocksSvr[i].Server.Clients {
+				for _, client := range a.SocksSvr[i].Server.ClientsSnapshot() {
 
 					/* close the client connection */
-					a.SocksClientClose(a.SocksSvr[i].Server.Clients[client])
+					a.SocksClientClose(client)
 
 					/* make a new job */
 					var job = Job{
 						Command: COMMAND_SOCKET,
 						Data: []any{
 							SOCKET_COMMAND_CLOSE,
-							a.SocksSvr[i].Server.Clients[client],
+							client,
 						},
 					}
 
@@ -2128,10 +2138,11 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 				}
 
-				/* remove the socks server from the array */
-				a.SocksSvr = append(a.SocksSvr[:i], a.SocksSvr[i+1:]...)
-
 			}
+
+			/* remove all socks servers from the array (not while range-
+			 * iterating it, that skips entries and corrupts the slice) */
+			a.SocksSvr = nil
 
 			a.SocksSvrMtx.Unlock()
 
@@ -3046,7 +3057,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 								Reason   = Parser.ParseInt32()
 							)
 
-							if len(a.Downloads) > 0 {
+							if a.DownloadsLen() > 0 {
 								var download = a.DownloadGet(FileID)
 								if download != nil {
 									FileName = download.FilePath
@@ -6009,7 +6020,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 
 							err := socks.SendConnectSuccess(Client.Conn, Client.ATYP, Client.IpDomain, Client.Port)
 							if err == nil {
-								Client.Connected = true
+								Client.Connected.Store(true)
 							}
 
 						} else {

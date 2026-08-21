@@ -39,9 +39,96 @@ func NewTeamserver(DatabasePath string) *Teamserver {
 		return nil
 	} else {
 		return &Teamserver{
-			DB: d,
+			DB:            d,
+			LoginAttempts: make(map[string]*LoginAttempt),
 		}
 	}
+}
+
+// LoginThrottled reports whether the source IP is currently locked out
+// after too many failed operator logins.
+func (t *Teamserver) LoginThrottled(ip string) bool {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	attempt, ok := t.LoginAttempts[ip]
+	if !ok {
+		return false
+	}
+
+	if time.Now().Before(attempt.LockedUntil) {
+		return true
+	}
+
+	// lockout expired, reset
+	if !attempt.LockedUntil.IsZero() {
+		delete(t.LoginAttempts, ip)
+	}
+
+	return false
+}
+
+// LoginFailure records a failed operator login from the source IP and
+// locks it out once the failure threshold is reached.
+func (t *Teamserver) LoginFailure(ip string) {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	attempt, ok := t.LoginAttempts[ip]
+	if !ok {
+		// bound the map: entries are otherwise only removed on success
+		// or a revisit from the same IP, so attacker-churned source IPs
+		// would grow it without limit. sweep expired lockouts first and,
+		// if still full, evict entries to make room — but never an entry
+		// with an active lockout if it can be helped: dropping it would
+		// reset the lock. prefer plain failure counters and only as a
+		// last resort drop the lockout that expires soonest.
+		if len(t.LoginAttempts) >= loginAttemptsMax {
+			now := time.Now()
+			for k, a := range t.LoginAttempts {
+				if !a.LockedUntil.IsZero() && now.After(a.LockedUntil) {
+					delete(t.LoginAttempts, k)
+				}
+			}
+			if len(t.LoginAttempts) >= loginAttemptsMax {
+				for k, a := range t.LoginAttempts {
+					if len(t.LoginAttempts) < loginAttemptsMax {
+						break
+					}
+					if a.LockedUntil.IsZero() || !now.Before(a.LockedUntil) {
+						delete(t.LoginAttempts, k)
+					}
+				}
+				for len(t.LoginAttempts) >= loginAttemptsMax {
+					oldest := ""
+					var oldestLock time.Time
+					for k, a := range t.LoginAttempts {
+						if oldest == "" || a.LockedUntil.Before(oldestLock) {
+							oldest = k
+							oldestLock = a.LockedUntil
+						}
+					}
+					delete(t.LoginAttempts, oldest)
+				}
+			}
+		}
+		attempt = &LoginAttempt{}
+		t.LoginAttempts[ip] = attempt
+	}
+
+	attempt.Failures++
+	if attempt.Failures >= loginMaxFailures {
+		attempt.LockedUntil = time.Now().Add(loginLockout)
+		logger.Warn(fmt.Sprintf("Too many failed operator logins from %v - locking out for %v", colors.Red(ip), loginLockout))
+	}
+}
+
+// LoginSuccess clears the failed-login counter for the source IP.
+func (t *Teamserver) LoginSuccess(ip string) {
+	t.LoginAttemptsMtx.Lock()
+	defer t.LoginAttemptsMtx.Unlock()
+
+	delete(t.LoginAttempts, ip)
 }
 
 func (t *Teamserver) SetServerFlags(flags TeamserverFlags) {
@@ -534,6 +621,24 @@ func (t *Teamserver) handleRequest(id string) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(fmt.Sprintf("Recovered from panic while handling client (%v) request: %v", id, r))
+
+			// clean up the client the same way a normal disconnect does,
+			// otherwise a panicked handler leaves a ghost (possibly
+			// authenticated) operator behind that blocks reconnects
+			if value, isOk := t.Clients.Load(id); isOk {
+				client := value.(*Client)
+				if err := client.Connection.Close(); err != nil {
+					logger.Error("Error while closing Client connection: " + err.Error())
+				}
+				if client.Authenticated {
+					// only append to the event history here; the
+					// RemoveClient below broadcasts UserDisconnected
+					// for authenticated clients itself
+					pk := events.ChatLog.UserDisconnected(client.Username)
+					t.EventAppend(pk)
+				}
+			}
+			t.RemoveClient(id)
 		}
 	}()
 
@@ -570,6 +675,23 @@ func (t *Teamserver) handleRequest(id string) {
 			}
 		}
 		if !found {
+			// record username probes as login failures too: otherwise this
+			// branch is an un-throttled username-enumeration oracle right
+			// next to the throttled password path. the client-visible
+			// response stays UserDoNotExists either way.
+			LoginIP := client.LoginIP()
+			if t.LoginThrottled(LoginIP) {
+				logger.Error("Login attempt for unknown user from throttled IP (" + colors.Red(client.GlobalIP) + ")")
+			} else {
+				// only count the failure when not already locked out:
+				// re-arming LockedUntil on every probe would let an
+				// attacker extend the lockout indefinitely, DoS-ing
+				// legitimate users behind the same IP (the password
+				// path skips LoginFailure while throttled for the
+				// same reason)
+				t.LoginFailure(LoginIP)
+			}
+
 			err := t.SendEvent(id, events.UserDoNotExists())
 			if err != nil {
 				logger.Error("Error while sending package to " + colors.Red(id) + "")
@@ -579,54 +701,88 @@ func (t *Teamserver) handleRequest(id string) {
 		}
 	}
 
-	isExist := false
-	t.Clients.Range(func(key, value any) bool {
-		if value.(*Client).Username == pk.Head.User {
-			err := t.SendEvent(id, events.UserAlreadyExits())
-			if err != nil {
-				logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
+	// the duplicate-login check and the username assignment have to happen
+	// atomically, otherwise two concurrent logins as the same user both
+	// pass the check (TOCTOU). runs in a closure with a deferred unlock so
+	// a panic in this section can never leave LoginMutex held forever,
+	// permanently deadlocking every subsequent login
+	authenticated := func() bool {
+		t.LoginMutex.Lock()
+		defer t.LoginMutex.Unlock()
+
+		isExist := false
+
+		t.Clients.Range(func(key, value any) bool {
+			if value.(*Client).Username == pk.Head.User {
+				err := t.SendEvent(id, events.UserAlreadyExits())
+				if err != nil {
+					logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
+				}
+				t.RemoveClient(id)
+				isExist = true
+				return false
 			}
-			t.RemoveClient(id)
-			isExist = true
+			return true
+		})
+		if isExist {
 			return false
 		}
-		return true
-	})
-	if isExist {
-		return
-	}
-	User, ok := pk.Body.Info["User"].(string)
-	if !ok {
-		logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
-		t.RemoveClient(id)
-		return
-	}
+		User, ok := pk.Body.Info["User"].(string)
+		if !ok {
+			logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
+			t.RemoveClient(id)
+			return false
+		}
 
-	if !t.ClientAuthenticate(pk) {
-		logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
-		err := t.SendEvent(id, events.Authenticated(false))
-		if err != nil {
-			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+		LoginIP := client.LoginIP()
+
+		if t.LoginThrottled(LoginIP) {
+			logger.Error("Client [User: " + User + "] login attempt from throttled IP (" + colors.Red(client.GlobalIP) + ")")
+			err := t.SendEvent(id, events.Authenticated(false))
+			if err != nil {
+				logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+			}
+			if err = client.Connection.Close(); err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
+			t.RemoveClient(id)
+			return false
 		}
-		err = client.Connection.Close()
-		if err != nil {
-			logger.Error("Failed to close client (" + id + ") socket")
+
+		if !t.ClientAuthenticate(pk) {
+			t.LoginFailure(LoginIP)
+			logger.Error("Client [User: " + User + "] failed to Authenticate! (" + colors.Red(client.GlobalIP) + ")")
+			err := t.SendEvent(id, events.Authenticated(false))
+			if err != nil {
+				logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message: " + colors.Red(err))
+			}
+			err = client.Connection.Close()
+			if err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
+			t.RemoveClient(id)
+			return false
 		}
-		return
-	} else {
 
 		logger.Good("User <" + colors.Blue(User) + "> " + colors.Green("Authenticated"))
 
 		client.Authenticated = true
 		client.ClientID = id
+		client.Username = User
 
-		err := t.SendEvent(id, events.Authenticated(true))
-		if err != nil {
-			logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message:" + colors.Red(err))
-		}
+		return true
+	}()
+
+	if !authenticated {
+		return
 	}
 
-	client.Username = User
+	t.LoginSuccess(client.LoginIP())
+
+	err = t.SendEvent(id, events.Authenticated(true))
+	if err != nil {
+		logger.Error("client (" + colors.Red(id) + ") error while sending authenticate message:" + colors.Red(err))
+	}
 	packageNewUser := events.ChatLog.NewUserConnected(client.Username)
 	t.EventAppend(packageNewUser)
 	t.EventBroadcast(id, packageNewUser)
@@ -680,6 +836,39 @@ func (t *Teamserver) SetProfile(path string) {
 		logger.SetStdOut(os.Stderr)
 		logger.Error("Profile error:", colors.Red(err))
 		os.Exit(1)
+	}
+
+	t.warnWeakCredentials()
+}
+
+// warnWeakCredentials loudly warns at startup when operator or service
+// passwords look like shipped defaults/placeholders or are empty.
+func (t *Teamserver) warnWeakCredentials() {
+	if t.Profile == nil {
+		return
+	}
+
+	var weak = func(password string) bool {
+		if len(password) < 8 {
+			return true
+		}
+		lower := strings.ToLower(password)
+		return strings.HasPrefix(lower, "change-me") ||
+			strings.Contains(lower, "password") ||
+			lower == "password1234" ||
+			lower == "service-password"
+	}
+
+	if t.Profile.Config.Operators != nil {
+		for _, user := range t.Profile.Config.Operators.Users {
+			if weak(user.Password) {
+				logger.Warn(fmt.Sprintf("Operator \"%v\" uses a default, placeholder or weak-looking password - change it in the profile", colors.Red(user.Name)))
+			}
+		}
+	}
+
+	if t.Profile.Config.Service != nil && weak(t.Profile.Config.Service.Password) {
+		logger.Warn("The Service API uses a default, placeholder or weak-looking password - change it in the profile")
 	}
 }
 
@@ -777,18 +966,30 @@ func (t *Teamserver) EventListenerError(ListenerName string, Error error) {
 	t.EventBroadcast("", pk)
 
 	// also remove the listener from the init packages.
+	t.EventsMutex.Lock()
 	for EventID := range t.EventsList {
 		if t.EventsList[EventID].Head.Event == packager.Type.Listener.Type {
 			if t.EventsList[EventID].Body.SubEvent == packager.Type.Listener.Add {
 				if name, ok := t.EventsList[EventID].Body.Info["Name"]; ok {
 					if name == ListenerName {
-						t.EventsList[EventID].Body.Info["Status"] = "Offline"
-						t.EventsList[EventID].Body.Info["Error"] = Error.Error()
+						// don't mutate the shared Info map in place:
+						// eventsListCopy hands the same maps to lock-free
+						// readers. copy it and store a replacement package.
+						pk := t.EventsList[EventID]
+						info := make(map[string]any, len(pk.Body.Info))
+						for k, v := range pk.Body.Info {
+							info[k] = v
+						}
+						info["Status"] = "Offline"
+						info["Error"] = Error.Error()
+						pk.Body.Info = info
+						t.EventsList[EventID] = pk
 					}
 				}
 			}
 		}
 	}
+	t.EventsMutex.Unlock()
 }
 
 func (t *Teamserver) SendEvent(id string, pk packager.Package) error {
@@ -844,29 +1045,67 @@ func (t *Teamserver) RemoveClient(ClientID string) {
 	}
 }
 
+// eventsListCopy returns a copy of the event history under the read lock
+// so callers can iterate it without racing concurrent appends/removals
+func (t *Teamserver) eventsListCopy() []packager.Package {
+	t.EventsMutex.RLock()
+	defer t.EventsMutex.RUnlock()
+
+	EventsList := make([]packager.Package, len(t.EventsList))
+	copy(EventsList, t.EventsList)
+
+	return EventsList
+}
+
 func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 
 	// some sanity check
 	if event.Head.Event == 0 {
-		return t.EventsList
+		return t.eventsListCopy()
 	}
 
 	if event.Head.OneTime != "true" {
+		t.EventsMutex.Lock()
+		defer t.EventsMutex.Unlock()
+
+		// drop the oldest events once the history cap is reached so a
+		// long-running server doesn't grow the list (and the replay to
+		// new clients) without bound
+		for len(t.EventsList) >= defaultEventsListMax {
+			t.EventsList = t.EventsList[1:]
+		}
+
 		t.EventsList = append(t.EventsList, event)
-		return t.EventsList
+
+		EventsList := make([]packager.Package, len(t.EventsList))
+		copy(EventsList, t.EventsList)
+
+		return EventsList
 	}
 
 	return nil
 }
 
 func (t *Teamserver) EventRemove(EventID int) []packager.Package {
-	t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
+	t.EventsMutex.Lock()
+	defer t.EventsMutex.Unlock()
 
-	return t.EventsList
+	if EventID >= 0 && EventID < len(t.EventsList) {
+		t.EventsList = append(t.EventsList[:EventID], t.EventsList[EventID+1:]...)
+	}
+
+	EventsList := make([]packager.Package, len(t.EventsList))
+	copy(EventsList, t.EventsList)
+
+	return EventsList
 }
 
 func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {
-	for _, Package := range t.EventsList {
+	// replay the stored event history to the new client; work on a copy
+	// so concurrent appends/removals don't race the iteration
+	EventsList := t.eventsListCopy()
+
+	for _, Package := range EventsList {
 		err := t.SendEvent(ClientID, Package)
 		if err != nil {
 			logger.Error("error while sending info to client("+ClientID+"): ", err)
@@ -875,7 +1114,7 @@ func (t *Teamserver) SendAllPackagesToNewClient(ClientID string) {
 	}
 
 	// send all the agents that are alive right now to the new client
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		if demon.Active == false {
 			continue
 		}

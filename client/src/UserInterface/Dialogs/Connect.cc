@@ -13,9 +13,9 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
     if ( Form->objectName().isEmpty() )
         Form->setObjectName( QString::fromUtf8( "Form" ) );
 
-    Form->resize( 500, 260 );
-    Form->setMinimumSize( QSize( 500, 260 ) );
-    Form->setMaximumSize( QSize( 500, 260 ) );
+    Form->resize( 500, 290 );
+    Form->setMinimumSize( QSize( 500, 290 ) );
+    Form->setMaximumSize( QSize( 500, 290 ) );
 
     Form->setStyleSheet( FileRead( ":/stylesheets/Dialogs/Connect" ) );
 
@@ -70,6 +70,11 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
 
     horizontalSpacer = new QSpacerItem( 40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum );
 
+    checkBox_IgnoreSsl = new QCheckBox( Form );
+    checkBox_IgnoreSsl->setObjectName( QString::fromUtf8( "checkBox_IgnoreSsl" ) );
+    checkBox_IgnoreSsl->setText( "Ignore SSL errors (insecure, needed for self-signed certificates)" );
+    checkBox_IgnoreSsl->setChecked( false );
+
     listContextMenu = new QMenu( this );
     listContextMenu->addAction( "Remove", this, &Connect::itemRemove );
     listContextMenu->addAction( "Clear",  this, &Connect::itemsClear );
@@ -114,6 +119,8 @@ void HavocNamespace::UserInterface::Dialogs::Connect::setupUi( QDialog* Form )
 
     gridLayout->addWidget( label_Password,   6, 1, 1, 1 );
     gridLayout->addWidget( lineEdit_Password,6, 2, 1, 1 );
+
+    gridLayout->addWidget( checkBox_IgnoreSsl, 7, 2, 1, 1 );
 
     gridLayout->addWidget( ButtonConnect,    8, 2, 1, 1 );
 
@@ -192,6 +199,11 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
     ConnectionInfo->Port     = lineEdit_Port->text();
     ConnectionInfo->User     = lineEdit_User->text();
     ConnectionInfo->Password = lineEdit_Password->text();
+    ConnectionInfo->IgnoreSSLErrors = checkBox_IgnoreSsl->isChecked();
+
+    /* the password field still holds the stored hash of an unchanged saved profile */
+    if ( ! ProfilePasswordHash.isEmpty() && ConnectionInfo->Password == ProfilePasswordHash )
+        ConnectionInfo->PasswordIsHashed = true;
 
     ProfileName = ConnectionInfo->Name.toStdString();
 
@@ -208,10 +220,23 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
             }
         }
         else if ( ConnectionInstant->ErrorString == nullptr ) {
+            /* persist a changed "Ignore SSL errors" checkbox on the
+             * existing profile */
+            if ( ! this->dbManager->updateTeamserverInfo( *ConnectionInfo ) ) {
+                spdlog::warn( "Failed to update Teamserver Info in database" );
+            }
             spdlog::info( "Connecting to profile: {}", ProfileName );
         } else {
             spdlog::critical( "Couldn't connect to profile: {}", ProfileName );
-            Havoc::Exit();
+
+            /* never kill the client over a login-screen error: report it
+             * and stay at the connect dialog so the user can retry */
+            auto MessageBox = QMessageBox();
+            MessageBox.setWindowTitle( "Connection error" );
+            MessageBox.setText( "Couldn't connect to the teamserver: " + ConnectionInstant->ErrorString );
+            MessageBox.setIcon( QMessageBox::Critical );
+            MessageBox.setStyleSheet( FileRead( ":/stylesheets/MessageBox" ) );
+            MessageBox.exec();
         }
 
     } else {
@@ -331,6 +356,9 @@ void HavocNamespace::UserInterface::Dialogs::Connect::itemSelected()
             lineEdit_Port->setText( Profile.Port );
             lineEdit_User->setText( Profile.User );
             lineEdit_Password->setText( Profile.Password );
+            checkBox_IgnoreSsl->setChecked( Profile.IgnoreSSLErrors );
+
+            ProfilePasswordHash = Profile.PasswordIsHashed ? Profile.Password : QString();
         }
     }
 
@@ -340,6 +368,7 @@ void HavocNamespace::UserInterface::Dialogs::Connect::itemSelected()
 void HavocNamespace::UserInterface::Dialogs::Connect::onButton_NewProfile()
 {
     this->isNewProfile = true;
+    this->ProfilePasswordHash.clear();
 
     listWidget->setCurrentIndex(QModelIndex());
 

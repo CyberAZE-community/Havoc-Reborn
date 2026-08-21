@@ -11,6 +11,7 @@ typedef struct
     PSID Sid;
     PSID SidLow;
     PACL SAcl;
+    PACL DAcl;
 
     PSECURITY_DESCRIPTOR SecDec;
 } SMB_PIPE_SEC_ATTR, *PSMB_PIPE_SEC_ATTR;
@@ -18,7 +19,7 @@ typedef struct
 BOOL SmbSend( PBUFFER Send );
 BOOL SmbRecv( PBUFFER Resp );
 
-VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES SecurityAttr );
+BOOL SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES SecurityAttr );
 VOID SmbSecurityAttrFree( PSMB_PIPE_SEC_ATTR SmbSecAttr );
 
 /* TRANSPORT_SMB */

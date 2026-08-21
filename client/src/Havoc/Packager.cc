@@ -70,13 +70,14 @@ using HavocNamespace::UserInterface::Widgets::ScriptManager;
 
 Util::Packager::PPackage Packager::DecodePackage( const QString& Package )
 {
-    auto FullPackage    = new Util::Packager::Package;
+    auto FullPackage    = new Util::Packager::Package();
     auto PackageObject  = QJsonObject();
     auto JsonData       = QJsonDocument::fromJson( Package.toUtf8() );
 
     if ( JsonData.isEmpty() )
     {
         spdlog::critical( "Invalid json" );
+        delete FullPackage;
         return nullptr;
     }
 
@@ -349,7 +350,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
 
             if ( ListenerInfo.Status.compare( "Online" ) == 0 )
             {
-                auto MsgStr = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Started " + Util::ColorText::Green( "\"" + QString( ListenerInfo.Name.c_str() ) + "\"" ) + " listener";
+                auto MsgStr = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Started " + Util::ColorText::Green( "\"" + QString( ListenerInfo.Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener";
                 auto Time   = QString( Package->Head.Time.c_str() );
 
                 HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -467,7 +468,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                         MessageBox( "Listener Error", QString( Error.c_str() ), QMessageBox::Critical );
                         HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
-                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ) + "\"" ) + " listener: " + Util::ColorText::Red( Error.c_str() );
+                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
 
                         HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -482,7 +483,7 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                     {
                         HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
-                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ) + "\"" ) + " listener: " + Util::ColorText::Red( Error.c_str() );
+                        auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
 
                         HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, MsgStr );
@@ -507,7 +508,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
             {
                 auto Time = QString( Package->Head.Time.c_str() );
 
-                HavocX::Teamserver.TabSession->TeamserverChat->AddUserMessage( Time, string( e.first ).c_str(), QByteArray::fromBase64( string( e.second ).c_str() ) );
+                HavocX::Teamserver.TabSession->TeamserverChat->AddUserMessage( Time, string( e.first ).c_str(), Util::base64_decode_capped( string( e.second ).c_str() ) );
             }
             break;
         }
@@ -524,7 +525,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
 
         case Util::Packager::Chat::NewUser:
         {
-            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() );
+            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() ).toHtmlEscaped();
             auto Time = QString( Package->Head.Time.c_str() );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time,  "[" + Util::ColorText::Green( "+" ) + "] " + Util::ColorText::Green( user + " connected to teamserver" ) );
@@ -534,7 +535,7 @@ bool Packager::DispatchChat( Util::Packager::PPackage Package)
 
         case Util::Packager::Chat::UserDisconnect:
         {
-            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() );
+            auto user = QString( Package->Body.Info.toStdMap()[ "User" ].c_str() ).toHtmlEscaped();
             auto Time = QString( Package->Head.Time.c_str() );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, "[" + Util::ColorText::Red( "-" ) + "] " + Util::ColorText::Red( user + " disconnected from teamserver" ) );
@@ -564,15 +565,21 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
 
                 if (HavocX::GateGUI)
                 {
-                    HavocX::Teamserver.TabSession->PayloadDialog->ReceivedImplantAndSave( FileName, QByteArray::fromBase64( PayloadArray ) );
+                    HavocX::Teamserver.TabSession->PayloadDialog->ReceivedImplantAndSave( FileName, Util::base64_decode_capped( PayloadArray ) );
                     HavocX::GateGUI = false;
                 }
                 else
                 {
                     if ( HavocX::callbackGate )
                     {
+                        auto GilState = PyGILState_Ensure();
+
                         PyObject* pyByteArray= PyUnicode_DecodeFSDefault(Package->Body.Info[ "PayloadArray" ].c_str());
-                        PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        PyObject* result     = PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        Py_XDECREF( result );
+                        Py_XDECREF( pyByteArray );
+
+                        PyGILState_Release( GilState );
                     }
                     else
                     {
@@ -654,7 +661,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
             TeamserverTab->LootWidget->AddSessionSection( Agent.Name );
 
             auto Time    = Agent.First;
-            auto Message = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Initialized " + Util::ColorText::Cyan( Agent.Name ) + " :: " + Util::ColorText::Yellow( Agent.User + "@" + Agent.Internal ) + Util::ColorText::Cyan( " (" ) + Util::ColorText::Red( Agent.Computer ) + Util::ColorText::Cyan( ")" );
+            auto Message = "[" + Util::ColorText::Cyan( "*" ) + "]" + " Initialized " + Util::ColorText::Cyan( Agent.Name.toHtmlEscaped() ) + " :: " + Util::ColorText::Yellow( ( Agent.User + "@" + Agent.Internal ).toHtmlEscaped() ) + Util::ColorText::Cyan( " (" ) + Util::ColorText::Red( Agent.Computer.toHtmlEscaped() ) + Util::ColorText::Cyan( ")" );
 
             HavocX::Teamserver.TabSession->SmallAppWidgets->EventViewer->AppendText( Time, Message );
 
@@ -664,6 +671,8 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                 {
                     if ( PyCallable_Check( Callback ) )
                     {
+                        auto GilState = PyGILState_Ensure();
+
                         PyObject* arglist = Py_BuildValue( "s", Agent.Name.toStdString().c_str() );
                         PyObject* Return  = PyObject_CallFunctionObjArgs( Callback, arglist, NULL );
                         if ( Return == NULL && PyErr_Occurred() )
@@ -672,6 +681,10 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                             PyErr_PrintEx(0);
                             PyErr_Clear();
                         }
+                        Py_XDECREF( Return );
+                        Py_XDECREF( arglist );
+
+                        PyGILState_Release( GilState );
                     } else {
                         spdlog::error( "Callback is not callable" );
                     }
@@ -697,9 +710,9 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                             AgentType = "Demon";
 
                         Session.InteractedWidget->DemonCommands->Prompt = QString (
-                                Util::ColorText::Comment( QString( Package->Head.Time.c_str() ) + " [" + QString( Package->Head.User.c_str() ) + "]" ) +
-                                " " + Util::ColorText::UnderlinePink( AgentType ) +
-                                Util::ColorText::Cyan(" » ") + QString( Package->Body.Info[ "CommandLine" ].c_str() )
+                                Util::ColorText::Comment( QString( Package->Head.Time.c_str() ).toHtmlEscaped() + " [" + QString( Package->Head.User.c_str() ).toHtmlEscaped() + "]" ) +
+                                " " + Util::ColorText::UnderlinePink( AgentType.toHtmlEscaped() ) +
+                                Util::ColorText::Cyan(" » ") + QString( Package->Body.Info[ "CommandLine" ].c_str() ).toHtmlEscaped()
                         );
 
                         if ( ! Package->Body.Info[ "TaskMessage" ].empty() )
@@ -735,7 +748,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                     {
                         case ( int ) Commands::CONSOLE_MESSAGE:
 
-                            if ( QByteArray::fromBase64( Output.toLocal8Bit() ).length() > 5 )
+                            if ( Util::base64_decode_capped( Output.toLocal8Bit() ).length() > 5 )
                             {
                                 Session.InteractedWidget->DemonCommands->OutputDispatch.MessageOutput(
                                         Output,
@@ -750,9 +763,9 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
 
                         case ( int ) Commands::BOF_CALLBACK:
 
-                            if ( QByteArray::fromBase64( Output.toLocal8Bit() ).length() > 5 )
+                            if ( Util::base64_decode_capped( Output.toLocal8Bit() ).length() > 5 )
                             {
-                                auto JsonDocument  = QJsonDocument::fromJson( QByteArray::fromBase64( Output.toLocal8Bit( ) ) );
+                                auto JsonDocument  = QJsonDocument::fromJson( Util::base64_decode_capped( Output.toLocal8Bit( ) ) );
                                 auto Worked        = JsonDocument[ "Worked" ].toString();
                                 auto Output        = JsonDocument[ "Output" ].toString();
                                 auto Error         = JsonDocument[ "Error"  ].toString();
@@ -764,9 +777,15 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                                     Callback = it->second;
                                     if ( PyCallable_Check( Callback ) )
                                     {
+                                        auto GilState = PyGILState_Ensure();
+
                                         PyObject *arglist = Py_BuildValue( "ssOss", Session.Name.toStdString().c_str(), TaskID.toStdString().c_str(), Worked == "true" ? Py_True : Py_False, Output.toStdString().c_str(), Error.toStdString().c_str() );
-                                        PyObject_CallObject( Callback, arglist );
+                                        PyObject *result  = PyObject_CallObject( Callback, arglist );
+                                        Py_XDECREF( result );
+                                        Py_XDECREF( arglist );
                                         Py_XDECREF( Callback );
+
+                                        PyGILState_Release( GilState );
                                     } else {
                                         spdlog::error( "Callback is not callable" );
                                     }
@@ -786,7 +805,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                         case ( int ) Commands::CALLBACK:
                         {
                             // update the "Last" field on this session
-                            auto LastTime     = QString( QByteArray::fromBase64( Output.toLocal8Bit() ) );
+                            auto LastTime     = QString( Util::base64_decode_capped( Output.toLocal8Bit() ) );
                             auto LastTimeJson = QJsonDocument::fromJson( LastTime.toLocal8Bit() );
 
                             Session.Last         = LastTimeJson["Last"].toString();
@@ -1015,7 +1034,26 @@ bool Packager::DispatchLoot( Util::Packager::PPackage Package )
         {
             auto AgentID  = QString( Package->Body.Info[ "AgentID" ].c_str() );
             auto FileName = QString( Package->Body.Info[ "FileName" ].c_str() );
-            auto Content  = QByteArray::fromBase64( QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit() );
+            auto Encoded  = QString( Package->Body.Info[ "Content" ].c_str() ).toLocal8Bit();
+            auto Content  = Util::base64_decode_capped( Encoded );
+
+            /* base64_decode_capped drops payloads over its cap with only
+             * an spdlog warning; surface that here instead of silently
+             * saving an empty loot file (same cap as global.cc) */
+            if ( Encoded.size() > Util::Base64PayloadCap )
+            {
+                auto Error = QString( "Loot file \"%1\" from agent %2 exceeds the size cap and was dropped" ).arg( FileName, AgentID );
+
+                if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
+                {
+                    HavocX::Teamserver.TabSession->LootWidget->LootError( Error );
+                }
+                else
+                {
+                    QMessageBox::warning( nullptr, "Loot", Error );
+                }
+                break;
+            }
 
             if ( HavocX::Teamserver.TabSession->LootWidget != nullptr )
             {

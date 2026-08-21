@@ -26,6 +26,6 @@ void HavocNamespace::UserInterface::SmallWidgets::EventViewer::setupUi(QWidget *
 }
 
 void HavocNamespace::UserInterface::SmallWidgets::EventViewer::AppendText(const QString& Time, const QString& text) const {
-    QString t = Util::ColorText::Comment(Time) + " " + text;
+    QString t = Util::ColorText::Comment(Time.toHtmlEscaped()) + " " + text;
     EventViewerConsole->append(t);
 }

@@ -101,6 +101,13 @@ VOID CommandDispatcher( VOID )
                 RequestID  = ParserGetInt32( &Parser );
                 TaskBuffer = ParserGetBytes( &Parser, &TaskBufferSize );
 
+                /* malformed task buffer (length prefix out of bounds).
+                 * stop dispatching instead of reading out of bounds. */
+                if ( ! TaskBuffer ) {
+                    PRINTF( "CommandDispatcher: failed to parse task buffer for CommandID:[%x]\n", CommandID )
+                    break;
+                }
+
                 Instance->CurrentRequestID = RequestID;
 
                 if ( CommandID != DEMON_COMMAND_NO_JOB ) {
@@ -308,10 +315,18 @@ VOID CommandProc( PPARSER Parser )
                         {
                             if ( NT_SUCCESS( SysNtReadVirtualMemory( hProcess, CONTAINING_RECORD( ListEntry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks ), &CurrentModule, sizeof( CurrentModule ), NULL ) ) )
                             {
-                                SysNtReadVirtualMemory( hProcess, CurrentModule.FullDllName.Buffer, &ModuleNameW, CurrentModule.FullDllName.Length, &Size );
+                                /* FullDllName.Length (in bytes) comes from the target process
+                                 * and can be larger than our buffer. clamp it. */
+                                UINT16 NameLength = CurrentModule.FullDllName.Length;
 
-                                if ( CurrentModule.FullDllName.Length > 0 ) {
-                                    Size = WCharStringToCharString( ModuleName, ModuleNameW, CurrentModule.FullDllName.Length );
+                                if ( NameLength > sizeof( ModuleNameW ) - sizeof( WCHAR ) )
+                                    NameLength = sizeof( ModuleNameW ) - sizeof( WCHAR );
+
+                                if ( NameLength > 0 ) {
+                                    SysNtReadVirtualMemory( hProcess, CurrentModule.FullDllName.Buffer, &ModuleNameW, NameLength, &Size );
+                                    ModuleNameW[ NameLength / sizeof( WCHAR ) ] = 0;
+
+                                    Size = WCharStringToCharString( ModuleName, ModuleNameW, MAX_PATH );
 
                                     PackageAddString( Package, ModuleName );
                                     PackageAddPtr( Package, CurrentModule.DllBase );
@@ -347,6 +362,12 @@ VOID CommandProc( PPARSER Parser )
             BUFFER UserDomain = { 0 };
 
             ProcessName = ParserGetWString( Parser, &ProcessSize );
+
+            if ( ! ProcessName )
+            {
+                PUTS( "Proc::Grep: failed to parse process name" )
+                break;
+            }
 
             if ( NT_SUCCESS( NtStatus = ProcessSnapShot( &SysProcessInfo, &ProcessInfoSize ) ) )
             {
@@ -698,20 +719,39 @@ VOID CommandFS( PPARSER Parser )
             PDIR_OR_FILE     DirOrFile    = NULL;
             PDIR_OR_FILE     TmpDirOrFile = NULL;
             UINT32           PathSize     = NULL;
+            UINT32           TargetSize   = 0;
+            UINT32           FilterSize   = 0;
 
             FileExplorer = ParserGetBool( Parser );
-            TargetFolder = ParserGetWString( Parser, NULL );
+            TargetFolder = ParserGetWString( Parser, &TargetSize );
             SubDirs      = ParserGetBool( Parser );
             FilesOnly    = ParserGetBool( Parser );
             DirsOnly     = ParserGetBool( Parser );
             ListOnly     = ParserGetBool( Parser );
-            Starts       = ParserGetWString( Parser, NULL );
-            Contains     = ParserGetWString( Parser, NULL );
-            Ends         = ParserGetWString( Parser, NULL );
+            /* ParserGetWString can return NULL without writing FilterSize,
+             * so reset it before each call and test the pointer first */
+            FilterSize   = 0;
+            Starts       = ParserGetWString( Parser, &FilterSize );
+            if ( ! Starts || FilterSize < sizeof( WCHAR ) || ! Starts[ 0 ] )
+                Starts = NULL;
+            FilterSize   = 0;
+            Contains     = ParserGetWString( Parser, &FilterSize );
+            if ( ! Contains || FilterSize < sizeof( WCHAR ) || ! Contains[ 0 ] )
+                Contains = NULL;
+            FilterSize   = 0;
+            Ends         = ParserGetWString( Parser, &FilterSize );
+            if ( ! Ends || FilterSize < sizeof( WCHAR ) || ! Ends[ 0 ] )
+                Ends = NULL;
 
-            Starts   = Starts[ 0 ]   ? Starts   : NULL;
-            Contains = Contains[ 0 ] ? Contains : NULL;
-            Ends     = Ends[ 0 ]     ? Ends     : NULL;
+            if ( ! TargetFolder || TargetSize < sizeof( WCHAR ) )
+            {
+                PUTS( "FS::Dir: failed to parse target folder" )
+                PackageAddBool( Package, FileExplorer );
+                PackageAddBool( Package, ListOnly );
+                PackageAddWString( Package, L"" );
+                PackageAddBool( Package, FALSE );
+                break;
+            }
 
             Path = Instance->Win32.LocalAlloc( LPTR, MAX_PATH * sizeof( WCHAR ) );
 
@@ -732,7 +772,13 @@ VOID CommandFS( PPARSER Parser )
             }
             else
             {
-                MemCopy( Path, TargetFolder, MAX_PATH * sizeof( WCHAR ) );
+                /* copy the target folder into our fixed size buffer.
+                 * truncate instead of reading past the parsed string. */
+                if ( TargetSize > ( MAX_PATH - 1 ) * sizeof( WCHAR ) )
+                    TargetSize = ( MAX_PATH - 1 ) * sizeof( WCHAR );
+
+                MemCopy( Path, TargetFolder, TargetSize );
+                Path[ TargetSize / sizeof( WCHAR ) ] = 0;
             }
 
             PRINTF( "Path: %ls\n", Path )
@@ -803,6 +849,13 @@ VOID CommandFS( PPARSER Parser )
             LARGE_INTEGER  FileSize = { 0 };
 
             Buffer = ParserGetBytes( Parser, &FileName.Length );
+
+            if ( ! Buffer || ! FileName.Length )
+            {
+                PUTS( "FS::Download: failed to parse file name" )
+                Success = FALSE;
+                goto CleanupDownload;
+            }
 
             FileName.Buffer = MmHeapAlloc( FileName.Length + sizeof( WCHAR ) );
             MemCopy( FileName.Buffer, Buffer, FileName.Length );
@@ -1018,6 +1071,15 @@ VOID CommandFS( PPARSER Parser )
             PathFrom = ParserGetWString( Parser, &FromSize );
             PathTo   = ParserGetWString( Parser, &ToSize );
 
+            if ( ! PathFrom || ! PathTo )
+            {
+                PUTS( "FS::Copy: failed to parse paths" )
+                PackageAddInt32( Package, FALSE );
+                PackageAddWString( Package, L"" );
+                PackageAddWString( Package, L"" );
+                break;
+            }
+
             PRINTF( "Copy file %ls to %ls\n", PathFrom, PathTo )
 
             Success = Instance->Win32.CopyFileW( PathFrom, PathTo, FALSE );
@@ -1042,6 +1104,15 @@ VOID CommandFS( PPARSER Parser )
 
             PathFrom = ParserGetWString( Parser, &FromSize );
             PathTo   = ParserGetWString( Parser, &ToSize );
+
+            if ( ! PathFrom || ! PathTo )
+            {
+                PUTS( "FS::Move: failed to parse paths" )
+                PackageAddInt32( Package, FALSE );
+                PackageAddWString( Package, L"" );
+                PackageAddWString( Package, L"" );
+                break;
+            }
 
             PRINTF( "Move file %ls to %ls\n", PathFrom, PathTo )
 
@@ -1125,6 +1196,13 @@ VOID CommandInlineExecute( PPARSER Parser )
     ULONG     BofFileID        = ParserGetInt32( Parser );
     ULONG     ParamsFileID     = ParserGetInt32( Parser );
     INT32     Flags            = ParserGetInt32( Parser );
+
+    if ( ! FunctionName )
+    {
+        PUTS( "Failed to parse the function name" )
+        PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_INVALID_PARAMETER );
+        goto CLEANUP;
+    }
 
     BofMemFile = GetMemFile( BofFileID );
     if ( BofMemFile && BofMemFile->IsCompleted )
@@ -1251,9 +1329,9 @@ VOID CommandSpawnDLL( PPARSER Parser )
     UINT32        DllSize    = 0;
     UINT32        ArgSize    = 0;
     UINT32        DllLdrSize = 0;
-    PCHAR         DllLdr     = ParserGetString( Parser, &DllLdrSize );
-    PCHAR         DllBytes   = ParserGetString( Parser, &DllSize );
-    PCHAR         Arguments  = ParserGetString( Parser, &ArgSize );
+    PCHAR         DllLdr     = ParserGetBytes( Parser, &DllLdrSize );
+    PCHAR         DllBytes   = ParserGetBytes( Parser, &DllSize );
+    PCHAR         Arguments  = ParserGetBytes( Parser, &ArgSize );
     DWORD         Result     = 0;
 
     Package = PackageCreate( DEMON_COMMAND_SPAWN_DLL );
@@ -1515,8 +1593,17 @@ VOID CommandToken( PPARSER Parser )
                 PUTS( "Privs::Get" )
                 PrivName = ParserGetString( Parser, &PrivNameLength );
 
-                PackageAddInt32( Package, TokenSetPrivilege( PrivName, TRUE ) );
-                PackageAddString( Package, PrivName );
+                if ( ! PrivName )
+                {
+                    PUTS( "Privs::Get: failed to parse privilege name" )
+                    PackageAddInt32( Package, FALSE );
+                    PackageAddString( Package, "" );
+                }
+                else
+                {
+                    PackageAddInt32( Package, TokenSetPrivilege( PrivName, TRUE ) );
+                    PackageAddString( Package, PrivName );
+                }
             }
 
             if ( TokenPrivs )
@@ -1889,7 +1976,7 @@ VOID CommandConfig( PPARSER Parser )
             PRINTF( "Function => %s\n", Function );
             PRINTF( "Offset => %x\n", Offset );
 
-            if ( Library )
+            if ( Library && Function )
             {
                 PVOID hLib = NULL;
 
@@ -1911,8 +1998,8 @@ VOID CommandConfig( PPARSER Parser )
                 }
             }
 
-            PackageAddString( Package, Library );
-            PackageAddString( Package, Function );
+            PackageAddString( Package, Library  ? Library  : "" );
+            PackageAddString( Package, Function ? Function : "" );
 
             break;
         }
@@ -1980,7 +2067,7 @@ VOID CommandConfig( PPARSER Parser )
             PRINTF( "Function => %s\n", Function );
             PRINTF( "Offset => %x\n", Offset );
 
-            if ( Library )
+            if ( Library && Function )
             {
                 PVOID hLib = NULL;
 
@@ -2003,8 +2090,8 @@ VOID CommandConfig( PPARSER Parser )
                 else PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_MOD_NOT_FOUND );
             }
 
-            PackageAddString( Package, Library );
-            PackageAddString( Package, Function );
+            PackageAddString( Package, Library  ? Library  : "" );
+            PackageAddString( Package, Function ? Function : "" );
 
             break;
         }
@@ -3268,9 +3355,17 @@ BOOL InWorkingHours( )
     WORD       StartMinute  = 0;
     WORD       EndHour      = 0;
     WORD       EndMinute    = 0;
+    UINT32     Start        = 0;
+    UINT32     End          = 0;
+    UINT32     Now          = 0;
 
     // if WorkingHours is not set, return TRUE
     if ( ( ( WorkingHours >> 22 ) & 1 ) == 0 )
+        return TRUE;
+
+    // a sleep time of 0 means the operator is performing some "important"
+    // task right now, so working hours are ignored entirely
+    if ( Instance->Config.Sleeping == 0 )
         return TRUE;
 
     StartHour   = ( WorkingHours >> 17 ) & 0b011111;
@@ -3280,16 +3375,18 @@ BOOL InWorkingHours( )
 
     Instance->Win32.GetLocalTime(&SystemTime);
 
-    if ( SystemTime.wHour < StartHour || SystemTime.wHour > EndHour )
-        return FALSE;
+    /* compare as minutes of the day so overnight ranges
+     * (e.g. 22:00 - 06:00) are handled correctly */
+    Start = StartHour * 60 + StartMinute;
+    End   = EndHour   * 60 + EndMinute;
+    Now   = SystemTime.wHour * 60 + SystemTime.wMinute;
 
-    if ( SystemTime.wHour == StartHour && SystemTime.wMinute < StartMinute )
-        return FALSE;
+    if ( Start <= End )
+        return Now >= Start && Now <= End;
 
-    if ( SystemTime.wHour == EndHour && SystemTime.wMinute > EndMinute )
-        return FALSE;
-
-    return TRUE;
+    /* overnight range: we are inside when we are past the start
+     * OR before the end */
+    return Now >= Start || Now <= End;
 }
 
 BOOL ReachedKillDate()

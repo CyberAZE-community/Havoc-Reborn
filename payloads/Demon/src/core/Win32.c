@@ -1599,15 +1599,26 @@ PROOT_DIR listDir(
                 goto Cleanup;
             }
 
-            MemCopy( SubDir->Path, Path, ( PathSize - 1 ) * sizeof( WCHAR ) );
-            StringConcatW( SubDir->Path, FindData.cFileName );
+            /* make sure the current path + the file name actually fit into
+             * the fixed size buffer (path length + name length + NUL) */
+            if ( ( PathSize - 1 ) + StringLengthW( FindData.cFileName ) > MAX_PATH )
+            {
+                PRINTF( "Path too long, skipping subdir: %ls%ls\n", Path, FindData.cFileName )
+                Instance->Win32.LocalFree( SubDir );
+                SubDir = NULL;
+            }
+            else
+            {
+                MemCopy( SubDir->Path, Path, ( PathSize - 1 ) * sizeof( WCHAR ) );
+                StringConcatW( SubDir->Path, FindData.cFileName );
 
-            if ( ! LastSubDir ) {
-                RootSubDir = SubDir;
-                LastSubDir = SubDir;
-            } else {
-                LastSubDir->Next = SubDir;
-                LastSubDir = SubDir;
+                if ( ! LastSubDir ) {
+                    RootSubDir = SubDir;
+                    LastSubDir = SubDir;
+                } else {
+                    LastSubDir->Next = SubDir;
+                    LastSubDir = SubDir;
+                }
             }
         }
 

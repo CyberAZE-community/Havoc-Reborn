@@ -70,7 +70,6 @@ public:
     void setupUi( QMainWindow *Havoc );
     void retranslateUi( QMainWindow *Havoc ) const;
     void setDBManager( HavocSpace::DBManager* dbManager );
-    void NewTeamserverTab( HavocNamespace::Util::ConnectionInfo* );
     void NewTeamserverTab( QString Name );
     void NewBottomTab( QWidget* TabWidget, const std::string& TitleName, const QString IconPath = "" ) const;
     void NewSmallTab( QWidget* TabWidget, const std::string& TitleName ) const;

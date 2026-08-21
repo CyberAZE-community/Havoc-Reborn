@@ -68,7 +68,7 @@ PyTypeObject PyAgentClass_Type = {
 
 void AgentClass_dealloc( PPyAgentClass self )
 {
-    Py_XDECREF( self->AgentID );
+    free( self->AgentID );
 
     Py_TYPE( self )->tp_free( ( PyObject* ) self );
 }
@@ -104,6 +104,13 @@ int AgentClass_init( PPyAgentClass self, PyObject *args, PyObject *kwds )
             self->CONSOLE_ERROR = 2;
             self->CONSOLE_TASK  = 3;
         }
+    }
+
+    if ( self->AgentID == NULL )
+    {
+        spdlog::error( "[PyError] no agent with the specified id found" );
+        PyErr_SetString( PyExc_KeyError, "no agent with the specified id found" );
+        return -1;
     }
 
     return 0;

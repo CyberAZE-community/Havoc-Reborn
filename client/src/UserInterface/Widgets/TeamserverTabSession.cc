@@ -389,6 +389,8 @@ void UserInterface::Widgets::TeamserverTabSession::handleDemonContextMenu( const
                             };
 
                             HavocX::Connector->SendPackage( Package );
+
+                            delete Package;
                         }
                     }
                 }

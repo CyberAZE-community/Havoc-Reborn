@@ -29,16 +29,17 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 		case packager.Type.Session.MarkAsDead:
 			if AgentID, ok := pk.Body.Info["AgentID"]; ok {
-				for i := range t.Agents.Agents {
-					if t.Agents.Agents[i].NameID == AgentID {
+				Agents := t.Agents.Snapshot()
+				for i := range Agents {
+					if Agents[i].NameID == AgentID {
 
 						if val, ok := pk.Body.Info["Marked"]; ok {
 							if val == "Dead" {
-								t.Died(t.Agents.Agents[i])
+								t.Died(Agents[i])
 							} else if val == "Alive" {
-								t.Agents.Agents[i].Active = true
+								Agents[i].Active = true
 							}
-							t.AgentUpdate(t.Agents.Agents[i])
+							t.AgentUpdate(Agents[i])
 						}
 					}
 				}
@@ -63,14 +64,15 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 				return
 			}
 
-			for i := range t.Agents.Agents {
+			Agents := t.Agents.Snapshot()
+			for i := range Agents {
 
-				if t.Agents.Agents[i].NameID == DemonID {
+				if Agents[i].NameID == DemonID {
 					found = true
 
 					// handle demon session input
 					// TODO: maybe move to own function ?
-					if t.Agents.Agents[i].Info.MagicValue == agent.DEMON_MAGIC_VALUE {
+					if Agents[i].Info.MagicValue == agent.DEMON_MAGIC_VALUE {
 
 						var (
 							Message = new(map[string]string)
@@ -155,8 +157,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								t.EventAppend(pk)
 								t.EventBroadcast(pk.Head.User, pk)
 
-								if err = t.Agents.Agents[i].TeamserverTaskPrepare(Command, Console); err != nil {
-									Console(t.Agents.Agents[i].NameID, map[string]string{
+								if err = Agents[i].TeamserverTaskPrepare(Command, Console); err != nil {
+									Console(Agents[i].NameID, map[string]string{
 										"Type":    "Error",
 										"Message": "Failed to create Task: " + err.Error(),
 									})
@@ -188,9 +190,9 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 										return true
 									})
 
-									job, err = t.Agents.Agents[i].TaskPrepare(command, pk.Body.Info, Message, ClientID, t)
+									job, err = Agents[i].TaskPrepare(command, pk.Body.Info, Message, ClientID, t)
 									if err != nil {
-										Console(t.Agents.Agents[i].NameID, map[string]string{
+										Console(Agents[i].NameID, map[string]string{
 											"Type":    "Error",
 											"Message": "Failed to create Task: " + err.Error(),
 										})
@@ -198,11 +200,11 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									}
 
 									if job != nil {
-										t.Agents.Agents[i].AddJobToQueue(*job)
+										Agents[i].AddJobToQueue(*job)
 									}
 
-									if t.Agents.Agents[i].Pivots.Parent != nil {
-										logr.LogrInstance.AddAgentInput("Demon", t.Agents.Agents[i].NameID, pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+									if Agents[i].Pivots.Parent != nil {
+										logr.LogrInstance.AddAgentInput("Demon", Agents[i].NameID, pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
 
 									} else {
 										logr.LogrInstance.AddAgentInput("Demon", pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
@@ -234,7 +236,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									t.EventBroadcast(pk.Head.User, pk)
 
 									if Message != nil {
-										Console(t.Agents.Agents[i].NameID, *Message)
+										Console(Agents[i].NameID, *Message)
 									}
 
 									return
@@ -245,7 +247,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 					} else {
 
 						for _, a := range t.Service.Agents {
-							if a.MagicValue == fmt.Sprintf("0x%x", t.Agents.Agents[i].Info.MagicValue) {
+							if a.MagicValue == fmt.Sprintf("0x%x", Agents[i].Info.MagicValue) {
 
 								// Set agent type
 								AgentType = a.Name
@@ -286,7 +288,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 								} else {
 									// Send command to agent service
-									a.SendTask(pk.Body.Info, t.Agents.Agents[i].ToMap())
+									a.SendTask(pk.Body.Info, Agents[i].ToMap())
 
 									// log agent input
 									logr.LogrInstance.AddAgentInput(a.Name, pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))

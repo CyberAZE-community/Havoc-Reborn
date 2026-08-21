@@ -2371,7 +2371,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
             if ( DemonConsole->SessionInfo.PivotParent.size() > 0 )
             {
-                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name + "]";
+                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent.toHtmlEscaped() + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name.toHtmlEscaped() + "]";
             }
             else
             {
@@ -2379,8 +2379,8 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             }
 
             AgentMessageInfo =
-                    Util::ColorText::Comment( DemonConsole->SessionInfo.First ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper() ) + " authenticated as "+ Util::ColorText::Purple( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ) +
-                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal ) + "] [Process: " + Util::ColorText::Red( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch ) + "] " + PivotStream;
+                    Util::ColorText::Comment( DemonConsole->SessionInfo.First.toHtmlEscaped() ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper().toHtmlEscaped() ) + " authenticated as "+ Util::ColorText::Purple( ( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ).toHtmlEscaped() ) +
+                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal.toHtmlEscaped() ) + "] [Process: " + Util::ColorText::Red( ( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ).toHtmlEscaped() ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch.toHtmlEscaped() ) + "] " + PivotStream;
 
             prev_cursor = DemonConsole->Console->textCursor();
 
@@ -2400,7 +2400,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             {
                 DemonConsole->AppendRaw();
                 DemonConsole->AppendRaw( Prompt );
-                DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Util::ColorText::Comment( "[" + TaskID + "]") + " " + Util::ColorText::Cyan( CommandTaskInfo[ TaskID ] ) );
+                DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Util::ColorText::Comment( "[" + TaskID + "]") + " " + Util::ColorText::Cyan( CommandTaskInfo[ TaskID ].toHtmlEscaped() ) );
             }
 
         CheckRegisteredCommands:
@@ -2462,6 +2462,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             for ( u32 i = 2; i < InputCommands.size(); i++ )
                                 PyTuple_SetItem( FuncArgs, i - 1, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
+                            /* hold the GIL for the whole result-handling
+                             * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                             * PyUnicode_AsUTF8), not just the call itself */
+                            auto GilState = PyGILState_Ensure();
+
                             Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
                             if ( ! Path.empty() )
@@ -2476,6 +2481,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 PyErr_Clear();
                                 DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + " " + InputCommands[ 1 ] + ". Python module failed" );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2490,6 +2496,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 }
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2503,6 +2510,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 }
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2523,6 +2531,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                         }
 
                         return true;
@@ -2559,6 +2568,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         for ( u32 i = 1; i < InputCommands.size(); i++ )
                             PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
+                        /* hold the GIL for the whole result-handling
+                         * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                         * PyUnicode_AsUTF8), not just the call itself */
+                        auto GilState = PyGILState_Ensure();
+
                         Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
                         if ( ! Path.empty() )
@@ -2573,6 +2587,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             PyErr_Clear();
                             DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ". Python module failed" );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2587,6 +2602,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             }
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2600,6 +2616,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             }
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2620,6 +2637,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                         Py_CLEAR( Return );
                         Py_CLEAR( FuncArgs );
+                        PyGILState_Release( GilState );
                     }
 
                     return true;
@@ -2695,7 +2713,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
             if ( DemonConsole->SessionInfo.PivotParent.size() > 0 )
             {
-                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name + "]";
+                PivotStream = "[Pivot: " + DemonConsole->SessionInfo.PivotParent.toHtmlEscaped() + Util::ColorText::Cyan( "-<>-<>-" ) + DemonConsole->SessionInfo.Name.toHtmlEscaped() + "]";
             }
             else
             {
@@ -2703,8 +2721,8 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             }
 
             AgentMessageInfo =
-                    Util::ColorText::Comment( DemonConsole->SessionInfo.First ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper() ) + " authenticated as "+ Util::ColorText::Purple( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ) +
-                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal ) + "] [Process: " + Util::ColorText::Red( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch ) + "] " + PivotStream;
+                    Util::ColorText::Comment( DemonConsole->SessionInfo.First.toHtmlEscaped() ) + " Agent "+ Util::ColorText::Red( DemonConsole->SessionInfo.Name.toUpper().toHtmlEscaped() ) + " authenticated as "+ Util::ColorText::Purple( ( DemonConsole->SessionInfo.Computer + "\\" + DemonConsole->SessionInfo.User ).toHtmlEscaped() ) +
+                    " :: [Internal: "+Util::ColorText::Cyan( DemonConsole->SessionInfo.Internal.toHtmlEscaped() ) + "] [Process: " + Util::ColorText::Red( ( DemonConsole->SessionInfo.Process +"\\"+ DemonConsole->SessionInfo.PID ).toHtmlEscaped() ) + "] [Arch: " +Util::ColorText::Pink( DemonConsole->SessionInfo.Arch.toHtmlEscaped() ) + "] " + PivotStream;
 
             prev_cursor = DemonConsole->Console->textCursor();
 
@@ -2731,7 +2749,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     DemonConsole->AppendRaw();
                     DemonConsole->AppendRaw( Prompt );
-                    DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + CommandTaskInfo[ TaskID ] );
+                    DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + CommandTaskInfo[ TaskID ].toHtmlEscaped() );
                 }
             }
 
@@ -2826,6 +2844,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 for ( u32 i = 1; i < InputCommands.size(); i++ )
                                     PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
+                                /* hold the GIL for the whole result-handling
+                                 * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                                 * PyUnicode_AsUTF8), not just the call itself */
+                                auto GilState = PyGILState_Ensure();
+
                                 Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
                                 if ( ! Path.empty() )
@@ -2840,6 +2863,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     PyErr_Clear();
                                     DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ". Python module failed" );
                                     Py_CLEAR( FuncArgs );
+                                    PyGILState_Release( GilState );
                                     return false;
                                 }
 
@@ -2858,6 +2882,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                     Py_CLEAR( Return );
                                     Py_CLEAR( FuncArgs );
+                                    PyGILState_Release( GilState );
 
                                     return false;
                                 }
@@ -2877,6 +2902,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                             }
 
                             return true;

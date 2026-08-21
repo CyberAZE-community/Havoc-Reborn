@@ -14,9 +14,10 @@ namespace HavocNamespace
     class Connector : public QObject
     {
     private:
-        QWebSocket*           Socket     = nullptr;
-        Util::ConnectionInfo* Teamserver = nullptr;
-        HavocSpace::Packager* Packager   = nullptr;
+        QWebSocket*           Socket        = nullptr;
+        Util::ConnectionInfo* Teamserver    = nullptr;
+        HavocSpace::Packager* Packager      = nullptr;
+        bool                  UserDisconnect = false;
 
     public:
         QString ErrorString = QString();

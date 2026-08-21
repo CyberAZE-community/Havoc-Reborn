@@ -2,6 +2,8 @@ package logr
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 
 	"Havoc/pkg/logger"
 )
@@ -51,4 +53,15 @@ func NewLogr(Server, Path string) *Logr {
 	}
 
 	return logr
+}
+
+// PathWithin reports whether target is contained within base using
+// filepath.Rel, so a sibling directory that merely shares a string
+// prefix with base is rejected.
+func PathWithin(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

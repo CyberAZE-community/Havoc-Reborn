@@ -571,6 +571,16 @@ BOOL TimerObf(
 
                     PRINTF( "Rops to be executed: %d\n", Inc )
 
+                    /* if the jmp gadget lookup failed we fell back to
+                     * SLEEPOBF_BYPASS_NONE. never queue a context with a
+                     * NULL Rip, fall back to the default sleep instead */
+                    for ( int i = 0; i < Inc; i++ ) {
+                        if ( ! Rop[ i ].Rip ) {
+                            PUTS( "ROP chain contains a NULL Rip, aborting" )
+                            goto LEAVE;
+                        }
+                    }
+
                     /* execute/queue the timers */
                     for ( int i = 0; i < Inc; i++ ) {
                         if ( Method == SLEEPOBF_EKKO ) {
@@ -657,42 +667,37 @@ UINT32 SleepTime(
     SYSTEMTIME SystemTime   = { 0 };
     WORD       StartHour    = 0;
     WORD       StartMinute  = 0;
-    WORD       EndHour      = 0;
-    WORD       EndMinute    = 0;
 
     if ( ! InWorkingHours() )
     {
         /*
-         * we are no longer in working hours,
-         * if the SleepTime is 0, then we will assume the operator is performing some "important" task right now,
-         * so we will ignore working hours, and we won't sleep
-         * if the SleepTime is not 0, we will sleep until we are in working hours again
+         * we are no longer in working hours.
+         * sleep until we are in working hours again.
+         * (a SleepTime of 0 never reaches this: InWorkingHours
+         * returns TRUE in that case)
          */
-        if ( SleepTime )
         {
-            // calculate how much we need to sleep until we reach the start of the working hours
-            SleepTime = 0;
+            UINT32 Start = 0;
+            UINT32 Now   = 0;
 
             StartHour   = ( WorkingHours >> 17 ) & 0b011111;
             StartMinute = ( WorkingHours >> 11 ) & 0b111111;
-            EndHour     = ( WorkingHours >>  6 ) & 0b011111;
-            EndMinute   = ( WorkingHours >>  0 ) & 0b111111;
 
             Instance->Win32.GetLocalTime(&SystemTime);
 
-            if ( SystemTime.wHour == EndHour && SystemTime.wMinute > EndMinute || SystemTime.wHour > EndHour )
-            {
-                // seconds until 00:00
-                SleepTime += ( 24 - SystemTime.wHour - 1 ) * 60 + ( 60 - SystemTime.wMinute );
-                // seconds until start of working hours from 00:00
-                SleepTime += StartHour * 60 + StartMinute;
-            }
+            // minutes of the day
+            Start = StartHour * 60 + StartMinute;
+            Now   = SystemTime.wHour * 60 + SystemTime.wMinute;
+
+            // minutes until the start of the working hours
+            // (handles overnight ranges too)
+            if ( Now < Start )
+                SleepTime = Start - Now;
             else
-            {
-                // seconds until start of working hours from current time
-                SleepTime += ( StartHour - SystemTime.wHour ) * 60 + ( StartMinute - SystemTime.wMinute );
-            }
-            SleepTime *= 1000;
+                SleepTime = ( 24 * 60 - Now ) + Start;
+
+            // convert minutes to milliseconds
+            SleepTime *= 60 * 1000;
         }
     }
     // MaxVariation will be non-zero if sleep jitter was specified

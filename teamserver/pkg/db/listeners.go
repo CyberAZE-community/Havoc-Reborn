@@ -2,7 +2,6 @@ package db
 
 import (
 	"errors"
-	"log"
 )
 
 func (db *DB) ListenerAdd(Name, Protocol, Config string) error {
@@ -116,7 +115,7 @@ func (db *DB) ListenerCount() int {
 
 	for query.Next() {
 		if err = query.Scan(&Count); err != nil {
-			log.Fatal(err)
+			return 0
 		}
 	}
 

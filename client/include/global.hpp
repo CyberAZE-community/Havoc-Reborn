@@ -75,6 +75,11 @@ namespace HavocNamespace
         std::string base64_encode( const char* buf, unsigned int bufLen );
         std::string gen_random( const int len );
 
+        /* cap on base64-encoded data accepted from the network (256 MiB encoded) */
+        constexpr int Base64PayloadCap = 256 * 1024 * 1024;
+
+        QByteArray base64_decode_capped( const QByteArray& Data );
+
         typedef struct RegisteredCommand
         {
             /* for what agent is it this command */
@@ -236,9 +241,9 @@ namespace HavocNamespace
             u64     KillDate;
             u32     WorkingHours;
 
-            UserInterface::Widgets::DemonInteracted* InteractedWidget;
-            UserInterface::Widgets::ProcessList*     ProcessList;
-            class FileBrowser*                             FileBrowser;
+            UserInterface::Widgets::DemonInteracted* InteractedWidget = nullptr;
+            UserInterface::Widgets::ProcessList*     ProcessList      = nullptr;
+            class FileBrowser*                             FileBrowser        = nullptr;
 
             std::map<QString, PyObject*> TaskIDToPythonCallbacks;
 
@@ -252,6 +257,8 @@ namespace HavocNamespace
             QString Port;
             QString User;
             QString Password;
+            bool    PasswordIsHashed = false;
+            bool    IgnoreSSLErrors  = false;
 
             std::vector<ListenerItem>      Listeners;
             std::vector<json>              RegisteredListeners;
@@ -266,7 +273,7 @@ namespace HavocNamespace
             QStringList   IpAddresses;
             std::string   LoadingScript;
 
-            UserInterface::Widgets::TeamserverTabSession* TabSession;
+            UserInterface::Widgets::TeamserverTabSession* TabSession = nullptr;
         } ConnectionInfo;
     };
 }

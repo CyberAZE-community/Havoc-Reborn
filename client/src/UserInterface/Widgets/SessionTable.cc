@@ -187,7 +187,7 @@ void HavocNamespace::UserInterface::Widgets::SessionTable::NewSessionItem( Util:
             Session.InteractedWidget->setupUi( new QWidget );
 
             if ( item.PivotParent.size() > 0 ) {
-                PivotStream = "[Pivot: " + item.PivotParent + Util::ColorText::Cyan( "-<>-<>-" ) + item.Name + "]";
+                PivotStream = "[Pivot: " + item.PivotParent.toHtmlEscaped() + Util::ColorText::Cyan( "-<>-<>-" ) + item.Name.toHtmlEscaped() + "]";
                 HavocX::Teamserver.TabSession->SessionGraphWidget->GraphPivotNodeAdd( item.PivotParent, item );
             } else {
                 PivotStream = "[Pivot: "+ Util::ColorText::Cyan( "Direct" ) +"]";
@@ -195,8 +195,8 @@ void HavocNamespace::UserInterface::Widgets::SessionTable::NewSessionItem( Util:
             }
 
             AgentMessageInfo =
-                    Util::ColorText::Comment( item.First ) + " Agent " + Util::ColorText::Red( item.Name.toUpper() ) + " authenticated as "+ Util::ColorText::Purple( item.Computer + "\\" + item.User ) +
-                    " :: [Internal: " + Util::ColorText::Cyan( item.Internal ) + "] [Process: " + Util::ColorText::Red( item.Process + "\\" + item.PID ) + "] [Arch: " + Util::ColorText::Pink( item.Arch ) + "] " + PivotStream;
+                    Util::ColorText::Comment( item.First.toHtmlEscaped() ) + " Agent " + Util::ColorText::Red( item.Name.toUpper().toHtmlEscaped() ) + " authenticated as "+ Util::ColorText::Purple( ( item.Computer + "\\" + item.User ).toHtmlEscaped() ) +
+                    " :: [Internal: " + Util::ColorText::Cyan( item.Internal.toHtmlEscaped() ) + "] [Process: " + Util::ColorText::Red( ( item.Process + "\\" + item.PID ).toHtmlEscaped() ) + "] [Arch: " + Util::ColorText::Pink( item.Arch.toHtmlEscaped() ) + "] " + PivotStream;
 
             prev_cursor = Session.InteractedWidget->Console->textCursor();
 

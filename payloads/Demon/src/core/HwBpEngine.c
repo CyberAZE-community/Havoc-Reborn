@@ -237,7 +237,16 @@ NTSTATUS HwBpEngineRemove(
         if ( BpEntry->Tid == Tid && BpEntry->Address == Address )
         {
             /* unlink from linked list */
-            BpLast->Next = BpEntry->Next;
+            if ( BpEntry == HwBpEngine->Breakpoints )
+            {
+                /* removing the head: update the list pointer, otherwise
+                 * it keeps pointing at the entry we are about to free */
+                HwBpEngine->Breakpoints = BpEntry->Next;
+            }
+            else
+            {
+                BpLast->Next = BpEntry->Next;
+            }
 
             /* disable hardware breakpoint */
             HwBpEngineSetBp( BpEntry->Tid, BpEntry->Address, BpEntry->Position, FALSE );

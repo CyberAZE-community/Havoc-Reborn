@@ -1,7 +1,15 @@
 #include <Havoc/DBManager/DBManager.hpp>
+#include <QCryptographicHash>
 #include <QSqlError>
 
 using namespace HavocNamespace;
+
+/* teamserver passwords are stored as "sha3:<hex>" instead of plaintext;
+ * legacy plaintext rows are migrated on read */
+static auto HashPassword( const QString& Password ) -> QString
+{
+    return "sha3:" + QCryptographicHash::hash( Password.toLocal8Bit(), QCryptographicHash::Sha3_256 ).toHex();
+}
 
 bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& connection )
 {
@@ -9,13 +17,18 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     auto success = true;
     auto error   = std::string();
 
-    query.prepare( "insert into Teamservers (ProfileName, Host, Port, User, Password) values(:ProfileName, :Host, :Port, :User, :Password)" );
+    query.prepare( "insert into Teamservers (ProfileName, Host, Port, User, Password, IgnoreSSLErrors) values(:ProfileName, :Host, :Port, :User, :Password, :IgnoreSSLErrors)" );
 
     query.bindValue( ":ProfileName", connection.Name.toStdString().c_str() );
     query.bindValue( ":Host",        connection.Host.toStdString().c_str() );
     query.bindValue( ":Port",        connection.Port.toStdString().c_str() );
     query.bindValue( ":User",        connection.User.toStdString().c_str() );
-    query.bindValue( ":Password",    connection.Password.toStdString().c_str() );
+    /* always store the "sha3:" prefixed form; listTeamservers() relies on
+     * the prefix to distinguish hashed rows from legacy plaintext */
+    query.bindValue( ":Password",    connection.PasswordIsHashed ?
+                                     ( "sha3:" + connection.Password ).toStdString().c_str() :
+                                     HashPassword( connection.Password ).toStdString().c_str() );
+    query.bindValue( ":IgnoreSSLErrors", connection.IgnoreSSLErrors ? 1 : 0 );
 
     /* print error */
     if ( ! ( success = query.exec() ) ) {
@@ -26,6 +39,33 @@ bool HavocSpace::DBManager::addTeamserverInfo( const Util::ConnectionInfo& conne
     }
 
     return success;
+}
+
+bool HavocSpace::DBManager::updateTeamserverInfo( const Util::ConnectionInfo& connection )
+{
+    auto query = QSqlQuery();
+    auto error = std::string();
+
+    /* persist UI-togglable connection flags and a changed password for an
+     * existing profile; the password keeps the "sha3:" prefixed form —
+     * unchanged profiles arrive here with PasswordIsHashed set and the
+     * stored hash in Password, so the hash is re-written as-is and never
+     * clobbered with plaintext */
+    query.prepare( "update Teamservers set Password = :Password, IgnoreSSLErrors = :IgnoreSSLErrors where ProfileName = :ProfileName" );
+    query.bindValue( ":Password",        connection.PasswordIsHashed ?
+                                         ( "sha3:" + connection.Password ).toStdString().c_str() :
+                                         HashPassword( connection.Password ).toStdString().c_str() );
+    query.bindValue( ":IgnoreSSLErrors", connection.IgnoreSSLErrors ? 1 : 0 );
+    query.bindValue( ":ProfileName",     connection.Name.toStdString().c_str() );
+
+    if ( ! query.exec() ) {
+        error = query.lastError().text().toStdString();
+
+        spdlog::error( "[DB] Failed to update teamserver info: {}", error );
+        return false;
+    }
+
+    return true;
 }
 
 bool HavocSpace::DBManager::checkTeamserverExists( const QString& ProfileName )
@@ -89,13 +129,34 @@ vector<Util::ConnectionInfo> HavocSpace::DBManager::listTeamservers()
 
     /* iterating over the queried list */
     while ( query.next() ) {
-        TeamserverList.push_back( {
+        auto StoredPassword = query.value( "Password" ).toString();
+        auto Info           = Util::ConnectionInfo {
             .Name     = query.value( "ProfileName" ).toString(),
             .Host     = query.value( "Host" ).toString(),
             .Port     = query.value( "Port" ).toString(),
             .User     = query.value( "User" ).toString(),
-            .Password = query.value( "Password" ).toString(),
-        } );
+        };
+
+        Info.IgnoreSSLErrors = query.value( "IgnoreSSLErrors" ).toBool();
+
+        if ( StoredPassword.startsWith( "sha3:" ) ) {
+            Info.Password         = StoredPassword.mid( 5 );
+            Info.PasswordIsHashed = true;
+        } else {
+            /* legacy plaintext row — migrate it to the hashed form */
+            Info.Password         = StoredPassword;
+            Info.PasswordIsHashed = false;
+
+            auto migrate = QSqlQuery();
+            migrate.prepare( "update Teamservers set Password = :Password where ProfileName = :ProfileName" );
+            migrate.bindValue( ":Password",    HashPassword( StoredPassword ) );
+            migrate.bindValue( ":ProfileName", Info.Name );
+
+            if ( ! migrate.exec() )
+                spdlog::error( "[DB] Failed to migrate teamserver password hash: {}", migrate.lastError().text().toStdString() );
+        }
+
+        TeamserverList.push_back( Info );
     }
 
     return TeamserverList;

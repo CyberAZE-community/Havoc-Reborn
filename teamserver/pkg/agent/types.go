@@ -2,6 +2,7 @@ package agent
 
 import (
 	"sync"
+	"sync/atomic"
 	"net"
 	"os"
 
@@ -124,7 +125,7 @@ type PortFwd struct {
 type SocksClient struct {
 	SocketID  int32
 	Conn      net.Conn
-	Connected bool
+	Connected atomic.Bool
 	ATYP      byte
 	IpDomain  []byte
 	Port      uint16
@@ -143,6 +144,10 @@ type Agent struct {
 	SessionDir string
 	Active     bool
 	Reason     string
+
+	// m guards JobQueue, Tasks and Downloads against concurrent access
+	// from HTTP handler, operator-WS and service goroutines
+	m sync.Mutex
 
 	BofCallbacks []*BofCallback
 
@@ -210,7 +215,20 @@ type AgentInfo struct {
 }
 
 type Agents struct {
+	m      sync.RWMutex
 	Agents []*Agent
+}
+
+// Snapshot returns a copy of the agent slice that is safe to iterate
+// while other goroutines append new agents.
+func (agents *Agents) Snapshot() []*Agent {
+	agents.m.RLock()
+	defer agents.m.RUnlock()
+
+	snapshot := make([]*Agent, len(agents.Agents))
+	copy(snapshot, agents.Agents)
+
+	return snapshot
 }
 
 var InjectErrors = map[int]string{

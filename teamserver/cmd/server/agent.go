@@ -35,7 +35,7 @@ func (t *Teamserver) UnlinkFromAll(Agent *agent.Agent) {
 	}
 
 	// remove agent from parent's link
-	for _, ParentAgent := range t.Agents.Agents {
+	for _, ParentAgent := range t.Agents.Snapshot() {
 		if ParentAgent.NameID == Agent.NameID {
 			continue
 		}
@@ -108,7 +108,18 @@ func (t *Teamserver) AgentHasDied(Agent *agent.Agent) bool {
 func (t *Teamserver) AgentAdd(Agent *agent.Agent) []*agent.Agent {
 	if Agent != nil {
 		if t.WebHooks != nil {
-			t.WebHooks.NewAgent(Agent.ToMap())
+			// snapshot the agent synchronously: ToMap takes the
+			// per-agent lock while copying, so running it here keeps
+			// the webhook goroutine from racing later mutations
+			AgentMap := Agent.ToMap()
+
+			// send the webhook asynchronously: a slow or dead endpoint
+			// must not block agent registration
+			go func() {
+				if err := t.WebHooks.NewAgent(AgentMap); err != nil {
+					logger.Error("Failed to send new-agent webhook: " + err.Error())
+				}
+			}()
 		}
 	}
 
@@ -153,7 +164,7 @@ func (t *Teamserver) AgentCallbackSize(DemonInstance *agent.Agent, i int) {
 }
 
 func (t *Teamserver) AgentInstance(AgentID int) *agent.Agent {
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		var NameID, _ = strconv.ParseInt(demon.NameID, 16, 64)
 
 		if AgentID == int(NameID) {
@@ -181,7 +192,7 @@ func (t *Teamserver) AgentLastTimeCalled(AgentID string, LastCallback string, Sl
 }
 
 func (t *Teamserver) AgentExist(AgentID int) bool {
-	for _, demon := range t.Agents.Agents {
+	for _, demon := range t.Agents.Snapshot() {
 		var NameID, err = strconv.ParseInt(demon.NameID, 16, 64)
 		if err != nil {
 			logger.Debug("Failed to convert demon.NameID to int: " + err.Error())

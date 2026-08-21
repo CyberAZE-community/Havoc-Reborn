@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 )
 
 type Socks struct {
@@ -11,7 +12,29 @@ type Socks struct {
 	addr     string
 	handler  func(s *Socks, conn net.Conn)
 	Failed   bool
-	Clients  []int32
+
+	// ClientsMtx guards Clients
+	ClientsMtx sync.Mutex
+	Clients    []int32
+}
+
+// ClientsAdd appends a client socket id under the Clients lock.
+func (s *Socks) ClientsAdd(SocketID int32) {
+	s.ClientsMtx.Lock()
+	s.Clients = append(s.Clients, SocketID)
+	s.ClientsMtx.Unlock()
+}
+
+// ClientsSnapshot returns a copy of the client socket ids that is safe
+// to iterate while handlers append new clients.
+func (s *Socks) ClientsSnapshot() []int32 {
+	s.ClientsMtx.Lock()
+	defer s.ClientsMtx.Unlock()
+
+	clients := make([]int32, len(s.Clients))
+	copy(clients, s.Clients)
+
+	return clients
 }
 
 func NewSocks(addr string) *Socks {

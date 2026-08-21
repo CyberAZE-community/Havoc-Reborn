@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type WebHook struct {
@@ -16,6 +17,10 @@ type WebHook struct {
 		Url    string
 	}
 }
+
+// webhookClient bounds every webhook request so a slow or dead endpoint
+// cannot stall the caller.
+var webhookClient = &http.Client{Timeout: 10 * time.Second}
 
 func StringPtr(str string) *string {
 	return &str
@@ -109,20 +114,19 @@ func (w *WebHook) NewAgent(agent map[string]any) error {
 			return err
 		}
 
-		resp, err := http.Post(w.Discord.Url, "application/json", payload)
+		resp, err := webhookClient.Post(w.Discord.Url, "application/json", payload)
 		if err != nil {
 			return err
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 && resp.StatusCode != 204 {
-			defer resp.Body.Close()
-
 			responseBody, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return err
 			}
 
-			return fmt.Errorf(string(responseBody))
+			return fmt.Errorf("webhook request failed with status %d: %s", resp.StatusCode, string(responseBody))
 		}
 
 		return nil

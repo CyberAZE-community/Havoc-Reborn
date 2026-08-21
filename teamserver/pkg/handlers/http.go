@@ -3,6 +3,7 @@ package handlers
 import (
 	"net"
 	"context"
+	_ "embed"
 	//"encoding/hex"
 	"io"
 	"log"
@@ -78,16 +79,15 @@ func (h *HTTP) generateCertFiles() bool {
 }
 
 // fake nginx 404 page
+//
+//go:embed 404.html
+var fake404Html []byte
+
 func (h *HTTP) fake404(ctx *gin.Context) {
 	ctx.Writer.WriteHeader(http.StatusNotFound)
-	html, err := os.ReadFile("teamserver/pkg/handlers/404.html")
-	if err != nil {
-		logger.Debug("Could not read fake 404 page: " + err.Error())
-		return
-	}
 	ctx.Header("Server", "nginx")
 	ctx.Header("Content-Type", "text/html")
-	ctx.Writer.Write(html)
+	ctx.Writer.Write(fake404Html)
 }
 
 func (h *HTTP) request(ctx *gin.Context) {
@@ -101,7 +101,25 @@ func (h *HTTP) request(ctx *gin.Context) {
 	}
 
 	if h.Config.BehindRedir {
-		ExternalIP = ctx.Request.Header.Get("X-Forwarded-For")
+		// The X-Forwarded-For header is only trustworthy if the redirector
+		// in front of this listener sets/overwrites it. Validate the value
+		// and fall back to the peer address when it is not a parseable IP.
+		ExternalIP = ""
+		if xff := ctx.Request.Header.Get("X-Forwarded-For"); xff != "" {
+			// first entry is the original client address
+			host := strings.TrimSpace(strings.Split(xff, ",")[0])
+			if ip := net.ParseIP(host); ip != nil {
+				ExternalIP = ip.String()
+			} else {
+				logger.Debug("BehindRedir: ignoring malformed X-Forwarded-For value: " + xff)
+			}
+		}
+		if ExternalIP == "" {
+			ExternalIP = ctx.Request.RemoteAddr
+			if host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr); err == nil {
+				ExternalIP = host
+			}
+		}
 	} else {
 		ExternalIP = ctx.Request.RemoteAddr
 		if host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr); err == nil {

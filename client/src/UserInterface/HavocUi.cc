@@ -254,6 +254,8 @@ void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util:
 
             HavocX::Connector->SendPackage( Package );
 
+            delete Package;
+
             break;
         }
     }
@@ -407,6 +409,11 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
 
     QMainWindow::connect( actionChat, &QAction::triggered, this, [&](){
         auto Teamserver = HavocX::Teamserver.TabSession;
+        if ( Teamserver == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         if ( Teamserver->TeamserverChat == nullptr ) {
             Teamserver->TeamserverChat = new Widgets::Chat;
             Teamserver->TeamserverChat->setupUi(new QWidget);
@@ -433,11 +440,20 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionSessionsTable, &QAction::triggered, this, []() {
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         HavocX::Teamserver.TabSession->MainViewWidget->setCurrentIndex( 0 );
     } );
 
     QMainWindow::connect( actionListeners, &QAction::triggered, this, [&](){
         auto Teamserver = HavocX::Teamserver.TabSession;
+        if ( Teamserver == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
 
         if ( Teamserver->ListenerTableWidget == nullptr ) {
             Teamserver->ListenerTableWidget = new Widgets::ListenersTable;
@@ -453,6 +469,11 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionTeamserver, &QAction::triggered, this, [&](){
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         if ( HavocX::Teamserver.TabSession->Teamserver == nullptr ) {
             HavocX::Teamserver.TabSession->Teamserver = new Teamserver;
             HavocX::Teamserver.TabSession->Teamserver->setupUi( new QDialog );
@@ -465,6 +486,11 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionStore, &QAction::triggered, this, [&](){
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         if ( HavocX::Teamserver.TabSession->Store == nullptr ) {
             HavocX::Teamserver.TabSession->Store = new Store;
             HavocX::Teamserver.TabSession->Store->setupUi( new QDialog );
@@ -477,11 +503,20 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionSessionsGraph, &QAction::triggered, this, [&]() {
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         HavocX::Teamserver.TabSession->MainViewWidget->setCurrentIndex( 1 );
     } );
 
     QMainWindow::connect( actionLogs, &QAction::triggered, this, [&]() {
         auto Teamserver = HavocX::Teamserver.TabSession;
+        if ( Teamserver == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
 
         if ( Teamserver->SmallAppWidgets->EventViewer == nullptr )
         {
@@ -496,6 +531,11 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionLoot, &QAction::triggered, this, [&]() {
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         if ( HavocX::Teamserver.TabSession->LootWidget == nullptr ) {
             HavocX::Teamserver.TabSession->LootWidget = new LootWidget;
         }
@@ -504,6 +544,11 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 
     QMainWindow::connect( actionGeneratePayload, &QAction::triggered, this, []() {
+        if ( HavocX::Teamserver.TabSession == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
+
         if ( HavocX::Teamserver.TabSession->PayloadDialog == nullptr ) {
             HavocX::Teamserver.TabSession->PayloadDialog = new Payload;
             HavocX::Teamserver.TabSession->PayloadDialog->setupUi( new QDialog );
@@ -515,6 +560,10 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
 
     QMainWindow::connect( actionPythonConsole, &QAction::triggered, this, [&]() {
         auto Teamserver = HavocX::Teamserver.TabSession;
+        if ( Teamserver == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
 
         if ( Teamserver->PythonScriptWidget == nullptr ) {
             Teamserver->PythonScriptWidget = new Widgets::PythonScriptInterpreter;
@@ -529,6 +578,10 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
 
     QMainWindow::connect( actionLoad_Script, &QAction::triggered, this, [&]() {
         auto Teamserver = HavocX::Teamserver.TabSession;
+        if ( Teamserver == nullptr ) {
+            MessageBox( "Error", "Not connected to a teamserver", QMessageBox::Critical );
+            return;
+        }
 
         if ( Teamserver->PythonScriptWidget == nullptr ) {
             Teamserver->PythonScriptWidget = new Widgets::PythonScriptInterpreter;
@@ -574,16 +627,6 @@ void HavocNamespace::UserInterface::HavocUi::setDBManager(HavocSpace::DBManager*
     this->dbManager = dbManager;
 }
 
-void UserInterface::HavocUi::NewTeamserverTab(HavocNamespace::Util::ConnectionInfo* Connection )
-{
-    Connection->TabSession = new UserInterface::Widgets::TeamserverTabSession;
-    Connection->TabSession->setupUi( new QWidget, Connection->Name );
-
-    int id = TeamserverTabWidget->addTab( Connection->TabSession->PageWidget, Connection->Name );
-    TeamserverTabWidget->setCurrentIndex( id );
-    HavocX::Teamserver = *Connection;
-}
-
 void UserInterface::HavocUi::NewTeamserverTab(QString Name )
 {
     HavocX::Teamserver.TabSession = new UserInterface::Widgets::TeamserverTabSession;
@@ -609,7 +652,28 @@ void UserInterface::HavocUi::PythonPrepare()
 
     PyImport_ImportModule( "emb" );
 
-    for ( auto& ScriptPath : dbManager->GetScripts() ) {
+    auto SavedScripts = dbManager->GetScripts();
+
+    if ( ! SavedScripts.empty() )
+    {
+        /* scripts run unsandboxed with full client privileges — make the trust explicit */
+        auto ScriptList = QString();
+        for ( auto& ScriptPath : SavedScripts )
+            ScriptList += ScriptPath + "\n";
+
+        auto confirmBox = QMessageBox();
+        confirmBox.setWindowTitle( "Load saved scripts" );
+        confirmBox.setText( "The following saved Python scripts are about to be loaded. Scripts run unsandboxed with full access to the client and the connected teamserver. Only load scripts you fully trust.\n\n" + ScriptList );
+        confirmBox.setIcon( QMessageBox::Warning );
+        confirmBox.setStandardButtons( QMessageBox::Yes | QMessageBox::No );
+        confirmBox.setDefaultButton( QMessageBox::No );
+        confirmBox.setStyleSheet( FileRead( ":/stylesheets/MessageBox" ) );
+
+        if ( confirmBox.exec() != QMessageBox::Yes )
+            return;
+    }
+
+    for ( auto& ScriptPath : SavedScripts ) {
         Widgets::ScriptManager::AddScript( ScriptPath );
     }
 }

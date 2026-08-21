@@ -23,6 +23,13 @@ DBManager::DBManager( const QString& FilePath, int OpenFlag )
             } else {
                 spdlog::error( "Failed to create a new database" );
             }
+        } else if ( exists ) {
+            /* additive schema migration: databases created by older
+             * versions lack the IgnoreSSLErrors column. the "duplicate
+             * column name" error on up-to-date databases is expected
+             * and ignored */
+            auto migrate = QSqlQuery();
+            migrate.exec( "ALTER TABLE \"Teamservers\" ADD COLUMN \"IgnoreSSLErrors\" INTEGER NOT NULL DEFAULT 0" );
         }
     } else {
         spdlog::error( "[DB] Failed to open database" );
@@ -46,7 +53,8 @@ bool DBManager::createNewDatabase()
         "\"Host\" TEXT, "
         "\"Port\" INTEGER, "
         "\"User\" TEXT, "
-        "\"Password\" TEXT "
+        "\"Password\" TEXT, "
+        "\"IgnoreSSLErrors\" INTEGER NOT NULL DEFAULT 0 "
         ");"
     );
     if ( ! query.exec() ) {

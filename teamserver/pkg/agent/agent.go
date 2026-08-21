@@ -227,44 +227,44 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 	agent.NameID = fmt.Sprintf("%08x", Header.AgentID)
 	agent.Info.MagicValue = Header.MagicValue
 
-	if val, ok := RegisterInfo["Hostname"]; ok {
-		agent.Info.Hostname = val.(string)
+	if val, ok := RegisterInfo["Hostname"].(string); ok {
+		agent.Info.Hostname = val
 	}
 
-	if val, ok := RegisterInfo["Username"]; ok {
-		agent.Info.Username = val.(string)
+	if val, ok := RegisterInfo["Username"].(string); ok {
+		agent.Info.Username = val
 	}
 
-	if val, ok := RegisterInfo["Domain"]; ok {
-		agent.Info.DomainName = val.(string)
+	if val, ok := RegisterInfo["Domain"].(string); ok {
+		agent.Info.DomainName = val
 	}
 
-	if val, ok := RegisterInfo["InternalIP"]; ok {
-		agent.Info.InternalIP = val.(string)
+	if val, ok := RegisterInfo["InternalIP"].(string); ok {
+		agent.Info.InternalIP = val
 	}
 
-	if val, ok := RegisterInfo["Process Path"]; ok {
-		agent.Info.ProcessPath = val.(string)
+	if val, ok := RegisterInfo["Process Path"].(string); ok {
+		agent.Info.ProcessPath = val
 	}
 
-	if val, ok := RegisterInfo["Process Name"]; ok {
-		agent.Info.ProcessName = val.(string)
+	if val, ok := RegisterInfo["Process Name"].(string); ok {
+		agent.Info.ProcessName = val
 	}
 
-	if val, ok := RegisterInfo["Process Arch"]; ok {
-		agent.Info.ProcessArch = val.(string)
+	if val, ok := RegisterInfo["Process Arch"].(string); ok {
+		agent.Info.ProcessArch = val
 	}
 
-	if val, ok := RegisterInfo["Process ID"]; ok {
-		agent.Info.ProcessPID, err = strconv.Atoi(val.(string))
+	if val, ok := RegisterInfo["Process ID"].(string); ok {
+		agent.Info.ProcessPID, err = strconv.Atoi(val)
 		if err != nil {
 			logger.DebugError("Couldn't parse ProcessID integer from string: " + err.Error())
 			agent.Info.ProcessPID = 0
 		}
 	}
 
-	if val, ok := RegisterInfo["Process Parent ID"]; ok {
-		agent.Info.ProcessPPID, err = strconv.Atoi(val.(string))
+	if val, ok := RegisterInfo["Process Parent ID"].(string); ok {
+		agent.Info.ProcessPPID, err = strconv.Atoi(val)
 		if err != nil {
 			logger.DebugError("Couldn't parse ProcessPPID integer from string: " + err.Error())
 			agent.Info.ProcessPPID = 0
@@ -286,9 +286,9 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 	}
 
 	// Updated OS Version handling
-	if val, ok := RegisterInfo["OS Version"]; ok {
+	if val, ok := RegisterInfo["OS Version"].(string); ok {
 		// Assuming val is a string representing the OS version, split it by '.' to get the version parts
-		versionParts := strings.Split(val.(string), ".")
+		versionParts := strings.Split(val, ".")
 		OsVersion := make([]int, len(versionParts))
 		for i, part := range versionParts {
 			OsVersion[i], _ = strconv.Atoi(part)
@@ -296,12 +296,12 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 		agent.Info.OSVersion = getWindowsVersionString(OsVersion)
 	}
 
-	if val, ok := RegisterInfo["OS Build"]; ok {
-		agent.Info.OSBuild = val.(string)
+	if val, ok := RegisterInfo["OS Build"].(string); ok {
+		agent.Info.OSBuild = val
 	}
 
-	if val, ok := RegisterInfo["OS Arch"]; ok {
-		agent.Info.OSArch = val.(string)
+	if val, ok := RegisterInfo["OS Arch"].(string); ok {
+		agent.Info.OSArch = val
 	}
 
 	if val, ok := RegisterInfo["SleepDelay"]; ok {
@@ -626,6 +626,9 @@ func (a *Agent) IsKnownRequestID(teamserver TeamServer, RequestID uint32, Comman
 		return true
 	}
 
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Tasks {
 		if a.Tasks[i].RequestID == RequestID {
 			return true
@@ -636,12 +639,17 @@ func (a *Agent) IsKnownRequestID(teamserver TeamServer, RequestID uint32, Comman
 
 // the operator added a new request/command
 func (a *Agent) AddRequest(job Job) []Job {
+	a.m.Lock()
 	a.Tasks = append(a.Tasks, job)
+	a.m.Unlock()
 	return a.Tasks
 }
 
 // after a request has been completed, we can forget about the RequestID so that it is no longer valid
 func (a *Agent) RequestCompleted(RequestID uint32) {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Tasks {
 		if a.Tasks[i].RequestID == RequestID {
 			a.Tasks = append(a.Tasks[:i], a.Tasks[i+1:]...)
@@ -659,7 +667,9 @@ func (a *Agent) AddJobToQueue(job Job) []Job {
 		a.PivotAddJob(job)
 		// if it's a direct agent add the job to the direct agent
 	} else {
+		a.m.Lock()
 		a.JobQueue = append(a.JobQueue, job)
+		a.m.Unlock()
 	}
 	return a.JobQueue
 }
@@ -669,8 +679,20 @@ func (a *Agent) GetQueuedJobs() []Job {
 	var JobsSize = 0
 	var NumJobs = 0
 
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	// make sure we return a number of jobs that doesn't exceed DEMON_MAX_RESPONSE_LENGTH
 	for _, job := range a.JobQueue {
+
+		// every job is serialized with a 12 byte header
+		// (CommandID + RequestID + PayloadSize)
+		JobsSize += 12
+
+		// service agents may attach a pre-built payload blob
+		if len(job.Payload) > 0 {
+			JobsSize += len(job.Payload)
+		}
 
 		for i := range job.Data {
 
@@ -704,7 +726,12 @@ func (a *Agent) GetQueuedJobs() []Job {
 				break
 
 			case string:
+				// serialized as size + data + terminating null-byte
+				// (see BuildPayloadMessage)
 				JobsSize += 4 + len(job.Data[i].(string))
+				if !strings.HasSuffix(job.Data[i].(string), "\x00") {
+					JobsSize += 1
+				}
 				break
 
 			case []byte:
@@ -760,7 +787,7 @@ func (a *Agent) PivotAddJob(job Job) {
 	)
 
 	// core package that the end pivot receive
-	AgentID, err = strconv.ParseInt(a.NameID, 16, 32)
+	AgentID, err = strconv.ParseInt(a.NameID, 16, 64)
 	if err != nil {
 		logger.Debug("Failed to convert NameID string to AgentID: " + err.Error())
 		return
@@ -795,7 +822,7 @@ func (a *Agent) PivotAddJob(job Job) {
 		Payload = BuildPayloadMessage([]Job{PivotJob}, pivots.Parent.Encryption.AESKey, pivots.Parent.Encryption.AESIv)
 		Packer = packer.NewPacker(nil, nil)
 
-		AgentID, err = strconv.ParseInt(pivots.Parent.NameID, 16, 32)
+		AgentID, err = strconv.ParseInt(pivots.Parent.NameID, 16, 64)
 		if err != nil {
 			logger.Debug("Failed to convert NameID string to AgentID: " + err.Error())
 			return
@@ -816,7 +843,9 @@ func (a *Agent) PivotAddJob(job Job) {
 		pivots = &pivots.Parent.Pivots
 	}
 
+	pivots.Parent.m.Lock()
 	pivots.Parent.JobQueue = append(pivots.Parent.JobQueue, PivotJob)
+	pivots.Parent.m.Unlock()
 }
 
 func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
@@ -840,7 +869,7 @@ func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
 
 	/* check if we don't have a path traversal */
 	path := filepath.Clean(DemonDownload)
-	if !strings.HasPrefix(path, DemonDownloadDir) {
+	if !logr.PathWithin(DemonDownloadDir, path) {
 		logger.Error("File didn't started with agent download path. abort")
 		return errors.New("File didn't started with agent download path. abort")
 	}
@@ -863,12 +892,17 @@ func (a *Agent) DownloadAdd(FileID int, FilePath string, FileSize int64) error {
 
 	download.LocalFile = DemonDownload + "/" + DownloadFile
 
+	a.m.Lock()
 	a.Downloads = append(a.Downloads, download)
+	a.m.Unlock()
 
 	return nil
 }
 
 func (a *Agent) DownloadWrite(FileID int, data []byte) error {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
 			_, err := a.Downloads[i].File.Write(data)
@@ -892,6 +926,9 @@ func (a *Agent) DownloadWrite(FileID int, data []byte) error {
 }
 
 func (a *Agent) DownloadClose(FileID int) {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
 			err := a.Downloads[i].File.Close()
@@ -905,7 +942,26 @@ func (a *Agent) DownloadClose(FileID int) {
 	}
 }
 
+// QueuedJobsLen returns the number of queued jobs, safe for concurrent use.
+func (a *Agent) QueuedJobsLen() int {
+	a.m.Lock()
+	defer a.m.Unlock()
+
+	return len(a.JobQueue)
+}
+
+// DownloadsLen returns the number of active downloads, safe for concurrent use.
+func (a *Agent) DownloadsLen() int {
+	a.m.Lock()
+	defer a.m.Unlock()
+
+	return len(a.Downloads)
+}
+
 func (a *Agent) DownloadGet(FileID int) *Download {
+	a.m.Lock()
+	defer a.m.Unlock()
+
 	for _, download := range a.Downloads {
 		if download.FileID == FileID {
 			return download
@@ -952,13 +1008,16 @@ func (a *Agent) PortFwdGet(SocketID int) *PortFwd {
 }
 
 func (a *Agent) PortFwdIsOpen(SocketID int) (bool, error) {
-	PortFwd := a.PortFwdGet(SocketID)
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		return PortFwd.Conn != nil, nil
-	} else {
-		return false, fmt.Errorf("rportfwd socket id %x not found", SocketID)
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			return a.PortFwds[i].Conn != nil, nil
+		}
 	}
+
+	return false, fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdOpen(SocketID int) error {
@@ -967,37 +1026,51 @@ func (a *Agent) PortFwdOpen(SocketID int) error {
 		PortFwd *PortFwd
 	)
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* hold the lock across the lookup and the assign: PortFwdClose may
+	 * otherwise nil/remove the entry in between */
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		if PortFwd.Conn == nil {
-			/* open the connection to the target */
-			PortFwd.Conn, err = net.Dial("tcp", PortFwd.Target)
-			return err
-		} else {
-			return errors.New("rportfwd connection is already open")
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+
+			if PortFwd.Conn == nil {
+				/* open the connection to the target */
+				PortFwd.Conn, err = net.Dial("tcp", PortFwd.Target)
+				return err
+			} else {
+				return errors.New("rportfwd connection is already open")
+			}
 		}
-	} else {
-		return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 	}
+
+	return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdWrite(SocketID int, data []byte) error {
 	var PortFwd *PortFwd
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* hold the lock across the lookup and the write: PortFwdClose may
+	 * otherwise nil the connection in between */
+	a.PortFwdsMtx.Lock()
+	defer a.PortFwdsMtx.Unlock()
 
-	if PortFwd != nil {
-		/* write to the connection */
-		if PortFwd.Conn != nil {
-			_, err := PortFwd.Conn.Write(data)
-			return err
-		} else {
-			return errors.New("rportfwd connection is empty")
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+
+			/* write to the connection */
+			if PortFwd.Conn != nil {
+				_, err := PortFwd.Conn.Write(data)
+				return err
+			} else {
+				return errors.New("rportfwd connection is empty")
+			}
 		}
-	} else {
-		return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 	}
+
+	return fmt.Errorf("rportfwd socket id %x not found", SocketID)
 }
 
 func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
@@ -1006,12 +1079,24 @@ func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
 		PortFwd *PortFwd
 	)
 
-	PortFwd = a.PortFwdGet(SocketID)
+	/* grab the connection under the lock, then copy without holding it:
+	 * the copy blocks until EOF and PortFwdClose would deadlock. closing
+	 * the connection concurrently just makes the copy return an error. */
+	a.PortFwdsMtx.Lock()
+	var conn net.Conn
+	for i := range a.PortFwds {
+		if a.PortFwds[i].SocktID == SocketID {
+			PortFwd = a.PortFwds[i]
+			conn = a.PortFwds[i].Conn
+			break
+		}
+	}
+	a.PortFwdsMtx.Unlock()
 
 	if PortFwd != nil {
-		if PortFwd.Conn != nil {
+		if conn != nil {
 			/* read from our socket to the data buffer or return error */
-			_, err := io.Copy(&data, PortFwd.Conn)
+			_, err := io.Copy(&data, conn)
 			if err != nil {
 				return nil, err
 			}
@@ -1062,7 +1147,7 @@ func (a *Agent) SocksClientAdd(SocketID int32, conn net.Conn, ATYP byte, IpDomai
 
 	client.SocketID = SocketID
 	client.Conn = conn
-	client.Connected = false
+	client.Connected.Store(false)
 	client.ATYP = ATYP
 	client.IpDomain = IpDomain
 	client.Port = Port
@@ -1107,7 +1192,7 @@ func (a *Agent) SocksClientRead(client *SocksClient) ([]byte, error) {
 
 	if client != nil {
 		if client.Conn != nil {
-			if client.Connected {
+			if client.Connected.Load() {
 
 				/* read from our socket to the data buffer or return error */
 				client.Conn.SetReadDeadline(time.Time{})
@@ -1203,10 +1288,36 @@ func (a *Agent) ToMap() map[string]interface{} {
 		MagicValue  string
 	)
 
+	// marshal a copy instead of mutating the shared agent struct: nil-ing
+	// the pivot parent in place raced with other readers (PivotAddJob,
+	// dispatch, events). the pivot parent is stripped from the copy to
+	// avoid recursive marshalling. JobQueue/Tasks/Downloads are guarded by
+	// a.m, so they are copied into fresh slices under the lock; the copy
+	// still shares the elements themselves (accepted: they are only read
+	// while marshalling and never mutated through the returned map).
+	a.m.Lock()
 	ParentAgent = a.Pivots.Parent
-	a.Pivots.Parent = nil
+	agentCopy := Agent{
+		NameID:          a.NameID,
+		JobQueue:        append([]Job(nil), a.JobQueue...),
+		Tasks:           append([]Job(nil), a.Tasks...),
+		SessionDir:      a.SessionDir,
+		Active:          a.Active,
+		Reason:          a.Reason,
+		BofCallbacks:    a.BofCallbacks,
+		Info:            a.Info,
+		Pivots:          Pivots{Links: a.Pivots.Links},
+		Downloads:       append([]*Download(nil), a.Downloads...),
+		PortFwds:        a.PortFwds,
+		SocksCli:        a.SocksCli,
+		SocksSvr:        a.SocksSvr,
+		Encryption:      a.Encryption,
+		TaskedOnce:      a.TaskedOnce,
+		BackgroundCheck: a.BackgroundCheck,
+	}
+	a.m.Unlock()
 
-	Info = structs.Map(a)
+	Info = structs.Map(&agentCopy)
 
 	Info["Info"].(map[string]interface{})["Listener"] = nil
 
@@ -1219,7 +1330,6 @@ func (a *Agent) ToMap() map[string]interface{} {
 
 	if ParentAgent != nil {
 		Info["PivotParent"] = ParentAgent.NameID
-		a.Pivots.Parent = ParentAgent
 	}
 
 	Info["MagicValue"] = MagicValue
@@ -1242,8 +1352,25 @@ func (a *Agent) ToJson() string {
 }
 
 func (agents *Agents) AgentsAppend(demon *Agent) []*Agent {
+	agents.m.Lock()
 	agents.Agents = append(agents.Agents, demon)
+	agents.m.Unlock()
 	return agents.Agents
+}
+
+// Remove drops the agent with the given NameID from the list and returns
+// it. returns nil if no agent with this NameID is registered.
+func (agents *Agents) Remove(nameID string) *Agent {
+	agents.m.Lock()
+	defer agents.m.Unlock()
+	for i := range agents.Agents {
+		if agents.Agents[i].NameID == nameID {
+			removed := agents.Agents[i]
+			agents.Agents = append(agents.Agents[:i], agents.Agents[i+1:]...)
+			return removed
+		}
+	}
+	return nil
 }
 
 func getWindowsVersionString(OsVersion []int) string {

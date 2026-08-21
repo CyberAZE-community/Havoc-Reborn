@@ -28,6 +28,9 @@
 #endif
 
 PVOID CoffeeFunctionReturn = NULL;
+PVOID CoffeeBofBase        = NULL;
+PVOID CoffeeBofEnd         = NULL;
+PVOID CoffeeThreadId       = NULL;
 
 LONG WINAPI VehDebugger( PEXCEPTION_POINTERS Exception )
 {
@@ -35,6 +38,16 @@ LONG WINAPI VehDebugger( PEXCEPTION_POINTERS Exception )
     PPACKAGE Package = NULL;
 
     PRINTF( "Exception: %p\n", Exception->ExceptionRecord->ExceptionCode )
+
+    /* only handle exceptions that happened inside the BOF we are currently
+     * executing (and on its thread). the handler is process-wide, anything
+     * else belongs to unrelated code and must be passed on to the
+     * remaining exception handlers instead of hijacking their RIP. */
+    if ( ! CoffeeFunctionReturn ||
+         NtCurrentTeb()->ClientId.UniqueThread != CoffeeThreadId ||
+         U_PTR( Exception->ExceptionRecord->ExceptionAddress ) < U_PTR( CoffeeBofBase ) ||
+         U_PTR( Exception->ExceptionRecord->ExceptionAddress ) >= U_PTR( CoffeeBofEnd ) )
+        return EXCEPTION_CONTINUE_SEARCH;
 
     // Leave faulty function
 #if _WIN64
@@ -88,6 +101,7 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
 {
     CHAR        Bak[ 1024 ]     = { 0 };
     CHAR        SymName[ 1024 ] = { 0 };
+    SIZE_T      SymLength       = 0;
     PCHAR       SymLibrary      = NULL;
     PCHAR       SymFunction     = NULL;
     HMODULE     hLibrary        = NULL;
@@ -97,7 +111,13 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
 
     *pFuncAddr = NULL;
 
-    MemCopy( Bak, SymbolName, StringLengthA( SymbolName ) + 1 );
+    /* SymbolName comes straight from the (untrusted) BOF symbol table.
+     * bound the copy to our stack buffer */
+    SymLength = StringLengthA( SymbolName );
+    if ( SymLength >= sizeof( Bak ) )
+        SymLength = sizeof( Bak ) - 1;
+
+    MemCopy( Bak, SymbolName, SymLength );
 
     if ( SymBeacon == COFF_PREP_BEACON )
     {
@@ -123,6 +143,9 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
     {
         // this is an import symbol without library: __imp_FUNCNAME
         SymFunction = SymbolName + COFF_PREP_SYMBOL_SIZE;
+
+        if ( StringLengthA( SymFunction ) >= sizeof( SymName ) )
+            goto SymbolNotFound;
 
         StringCopyA( SymName, SymFunction );
 
@@ -170,6 +193,9 @@ BOOL CoffeeProcessSymbol( PCOFFEE Coffee, LPSTR SymbolName, UINT16 SymbolType, P
             PRINTF( "Failed to load library: Lib:[%s] Err:[%d]\n", SymLibrary, NtGetLastError() );
             goto SymbolNotFound;
         }
+
+        if ( StringLengthA( SymFunction ) >= sizeof( SymName ) )
+            goto SymbolNotFound;
 
         StringCopyA( SymName, SymFunction );
 
@@ -271,6 +297,12 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
             PACKAGE_ERROR_WIN32
             return FALSE;
         }
+
+        /* remember the BOF image range and thread so the (process wide)
+         * VEH handler only handles exceptions that belong to this BOF */
+        CoffeeBofBase  = Coffee->ImageBase;
+        CoffeeBofEnd   = C_PTR( U_PTR( Coffee->ImageBase ) + Coffee->BofSize );
+        CoffeeThreadId = NtCurrentTeb()->ClientId.UniqueThread;
     }
 
     // set appropriate permissions for each section
@@ -309,7 +341,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
             if ( ! Success )
             {
                 PUTS( "Failed to protect memory" )
-                return FALSE;
+                goto END;
             }
         }
     }
@@ -321,7 +353,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
         if ( ! Success )
         {
             PUTS( "Failed to protect memory" )
-            return FALSE;
+            goto END;
         }
     }
 
@@ -357,7 +389,7 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
         PackageAddString( Package, Function );
         PackageTransmit( Package );
 
-        return FALSE;
+        goto END;
     }
 
     // make sure the entry point is on executable memory
@@ -377,18 +409,25 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
     if ( ! Success )
     {
         PRINTF( "The entry point (%p) is not on executable memory\n", CoffeeMain )
-        return FALSE;
+        goto END;
     }
 
     PUTS( "[*] Execute coffee main\n" );
     CoffeeFunction( CoffeeMain, Argument, Size );
 
-    // Remove our exception handler
+    Success = TRUE;
+
+END:
+    // Remove our exception handler on every exit path,
+    // otherwise it stays registered process-wide
     if ( VehHandle ) {
         Instance->Win32.RtlRemoveVectoredExceptionHandler( VehHandle );
+        CoffeeBofBase  = NULL;
+        CoffeeBofEnd   = NULL;
+        CoffeeThreadId = NULL;
     }
 
-    return TRUE;
+    return Success;
 }
 
 VOID CoffeeCleanup( PCOFFEE Coffee )
@@ -442,6 +481,36 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
 
         for ( DWORD RelocCnt = 0; RelocCnt < Coffee->Section->NumberOfRelocations; RelocCnt++ )
         {
+            /* the BOF is untrusted input. validate the relocation against
+             * the symbol table and the target section before using it */
+            if ( Coffee->Reloc->SymbolTableIndex >= Coffee->Header->NumberOfSymbols )
+            {
+                PRINTF( "Relocation symbol table index %d out of bounds (symbols: %d)\n", Coffee->Reloc->SymbolTableIndex, Coffee->Header->NumberOfSymbols )
+                return FALSE;
+            }
+
+            /* the required size depends on the relocation type:
+             * IMAGE_REL_AMD64_ADDR64 writes 8 bytes at RelocAddr, all
+             * other handled types write 4. checking only 4 bytes would
+             * allow a 4-byte out-of-bounds write at the section end */
+            UINT32 RelocSize = sizeof( UINT32 );
+
+#if _WIN64
+            if ( Coffee->Reloc->Type == IMAGE_REL_AMD64_ADDR64 ) {
+                RelocSize = sizeof( UINT64 );
+            }
+#endif
+
+            /* both operands are UINT32, so adding them can wrap around
+             * (e.g. 0xFFFFFFFC + 8 == 4) and pass the check. compare
+             * without arithmetic that can overflow instead */
+            if ( Coffee->Reloc->VirtualAddress > Coffee->SecMap[ SectionCnt ].Size ||
+                 RelocSize > Coffee->SecMap[ SectionCnt ].Size - Coffee->Reloc->VirtualAddress )
+            {
+                PRINTF( "Relocation address 0x%x out of bounds (section size: 0x%x)\n", Coffee->Reloc->VirtualAddress, Coffee->SecMap[ SectionCnt ].Size )
+                return FALSE;
+            }
+
             Symbol = &Coffee->Symbol[ Coffee->Reloc->SymbolTableIndex ];
 
             if ( Symbol->First.Value[ 0 ] != 0 )
@@ -463,8 +532,6 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
             RelocAddr = Coffee->SecMap[ SectionCnt ].Ptr + Coffee->Reloc->VirtualAddress;
             // address where the resolved function address will be stored
             FunMapAddr = Coffee->FunMap + ( FuncCount * sizeof( PVOID ) );
-            // the address of the section where the symbol is stored
-            SymbolSectionAddr = Coffee->SecMap[ Symbol->SectionNumber - 1 ].Ptr;
             // type of the symbol
             SymbolType = Symbol->Type;
 
@@ -472,6 +539,22 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
             {
                 PRINTF( "Symbol '%s' couldn't be resolved\n", SymbolName );
                 return FALSE;
+            }
+
+            if ( FuncPtr == NULL )
+            {
+                /* the symbol is defined inside one of the BOF sections.
+                 * validate the section number before indexing SecMap
+                 * (import symbols legitimately have a section number of 0,
+                 * but those take the FuncPtr path above) */
+                if ( Symbol->SectionNumber == 0 || Symbol->SectionNumber > Coffee->Header->NumberOfSections )
+                {
+                    PRINTF( "Symbol section number %d out of bounds (sections: %d)\n", Symbol->SectionNumber, Coffee->Header->NumberOfSections )
+                    return FALSE;
+                }
+
+                // the address of the section where the symbol is stored
+                SymbolSectionAddr = Coffee->SecMap[ Symbol->SectionNumber - 1 ].Ptr;
             }
 
 #if _WIN64
@@ -613,6 +696,14 @@ SIZE_T CoffeeGetFunMapSize( PCOFFEE Coffee )
 
         for ( DWORD RelocCnt = 0; RelocCnt < Coffee->Section->NumberOfRelocations; RelocCnt++ )
         {
+            /* the BOF is untrusted input. skip relocations that point
+             * outside the symbol table */
+            if ( Coffee->Reloc->SymbolTableIndex >= Coffee->Header->NumberOfSymbols )
+            {
+                Coffee->Reloc = C_PTR( U_PTR( Coffee->Reloc ) + sizeof( COFF_RELOC ) );
+                continue;
+            }
+
             Symbol = &Coffee->Symbol[ Coffee->Reloc->SymbolTableIndex ];
 
             if ( Symbol->First.Value[ 0 ] != 0 )
