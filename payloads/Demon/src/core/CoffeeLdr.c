@@ -501,7 +501,11 @@ BOOL CoffeeProcessSections( PCOFFEE Coffee )
             }
 #endif
 
-            if ( Coffee->Reloc->VirtualAddress + RelocSize > Coffee->SecMap[ SectionCnt ].Size )
+            /* both operands are UINT32, so adding them can wrap around
+             * (e.g. 0xFFFFFFFC + 8 == 4) and pass the check. compare
+             * without arithmetic that can overflow instead */
+            if ( Coffee->Reloc->VirtualAddress > Coffee->SecMap[ SectionCnt ].Size ||
+                 RelocSize > Coffee->SecMap[ SectionCnt ].Size - Coffee->Reloc->VirtualAddress )
             {
                 PRINTF( "Relocation address 0x%x out of bounds (section size: 0x%x)\n", Coffee->Reloc->VirtualAddress, Coffee->SecMap[ SectionCnt ].Size )
                 return FALSE;

