@@ -108,9 +108,9 @@ func (t *Teamserver) AgentHasDied(Agent *agent.Agent) bool {
 func (t *Teamserver) AgentAdd(Agent *agent.Agent) []*agent.Agent {
 	if Agent != nil {
 		if t.WebHooks != nil {
-			// snapshot the agent synchronously: ToMap reflects over the
-			// agent without holding its per-agent lock, so it must not
-			// run concurrently with later mutations of the agent
+			// snapshot the agent synchronously: ToMap takes the
+			// per-agent lock while copying, so running it here keeps
+			// the webhook goroutine from racing later mutations
 			AgentMap := Agent.ToMap()
 
 			// send the webhook asynchronously: a slow or dead endpoint

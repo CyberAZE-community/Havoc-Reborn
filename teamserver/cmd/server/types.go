@@ -35,12 +35,22 @@ type Client struct {
 
 // LoginIP returns the host part of GlobalIP (RemoteAddr is "ip:port",
 // and every connection gets a fresh source port, which would defeat
-// per-IP login throttling).
+// per-IP login throttling). IPv6 sources are keyed on their /64 prefix:
+// hosts routinely rotate through the whole prefix, which would otherwise
+// defeat throttling the same way source ports do. IPv4 is unchanged.
 func (c *Client) LoginIP() string {
-	if host, _, err := net.SplitHostPort(c.GlobalIP); err == nil {
-		return host
+	host := c.GlobalIP
+	if h, _, err := net.SplitHostPort(c.GlobalIP); err == nil {
+		host = h
 	}
-	return c.GlobalIP
+
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		// IPv6: mask everything past the first 8 bytes (the /64 prefix)
+		return ip.Mask(net.CIDRMask(64, 128)).String()
+	}
+
+	// IPv4 or unparseable: use the raw host string
+	return host
 }
 
 type Users struct {
@@ -124,9 +134,6 @@ type Teamserver struct {
 	LoginAttempts    map[string]*LoginAttempt
 	LoginAttemptsMtx sync.Mutex
 
-	// EventsListMax bounds the in-memory event history replayed to new
-	// clients; oldest events are dropped once the cap is reached
-	EventsListMax int
 	Service    *service.Service
 	WebHooks   *webhook.WebHook
 	DB         *db.DB

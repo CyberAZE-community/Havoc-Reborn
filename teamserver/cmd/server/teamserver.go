@@ -79,7 +79,10 @@ func (t *Teamserver) LoginFailure(ip string) {
 		// bound the map: entries are otherwise only removed on success
 		// or a revisit from the same IP, so attacker-churned source IPs
 		// would grow it without limit. sweep expired lockouts first and,
-		// if still full, evict arbitrary entries to make room.
+		// if still full, evict entries to make room — but never an entry
+		// with an active lockout if it can be helped: dropping it would
+		// reset the lock. prefer plain failure counters and only as a
+		// last resort drop the lockout that expires soonest.
 		if len(t.LoginAttempts) >= loginAttemptsMax {
 			now := time.Now()
 			for k, a := range t.LoginAttempts {
@@ -87,11 +90,26 @@ func (t *Teamserver) LoginFailure(ip string) {
 					delete(t.LoginAttempts, k)
 				}
 			}
-			for k := range t.LoginAttempts {
-				if len(t.LoginAttempts) < loginAttemptsMax {
-					break
+			if len(t.LoginAttempts) >= loginAttemptsMax {
+				for k, a := range t.LoginAttempts {
+					if len(t.LoginAttempts) < loginAttemptsMax {
+						break
+					}
+					if a.LockedUntil.IsZero() || !now.Before(a.LockedUntil) {
+						delete(t.LoginAttempts, k)
+					}
 				}
-				delete(t.LoginAttempts, k)
+				for len(t.LoginAttempts) >= loginAttemptsMax {
+					oldest := ""
+					var oldestLock time.Time
+					for k, a := range t.LoginAttempts {
+						if oldest == "" || a.LockedUntil.Before(oldestLock) {
+							oldest = k
+							oldestLock = a.LockedUntil
+						}
+					}
+					delete(t.LoginAttempts, oldest)
+				}
 			}
 		}
 		attempt = &LoginAttempt{}
@@ -613,7 +631,11 @@ func (t *Teamserver) handleRequest(id string) {
 					logger.Error("Error while closing Client connection: " + err.Error())
 				}
 				if client.Authenticated {
-					t.EventAppend(events.ChatLog.UserDisconnected(client.Username))
+					// only append to the event history here; the
+					// RemoveClient below broadcasts UserDisconnected
+					// for authenticated clients itself
+					pk := events.ChatLog.UserDisconnected(client.Username)
+					t.EventAppend(pk)
 				}
 			}
 			t.RemoveClient(id)
@@ -653,6 +675,23 @@ func (t *Teamserver) handleRequest(id string) {
 			}
 		}
 		if !found {
+			// record username probes as login failures too: otherwise this
+			// branch is an un-throttled username-enumeration oracle right
+			// next to the throttled password path. the client-visible
+			// response stays UserDoNotExists either way.
+			LoginIP := client.LoginIP()
+			if t.LoginThrottled(LoginIP) {
+				logger.Error("Login attempt for unknown user from throttled IP (" + colors.Red(client.GlobalIP) + ")")
+			} else {
+				// only count the failure when not already locked out:
+				// re-arming LockedUntil on every probe would let an
+				// attacker extend the lockout indefinitely, DoS-ing
+				// legitimate users behind the same IP (the password
+				// path skips LoginFailure while throttled for the
+				// same reason)
+				t.LoginFailure(LoginIP)
+			}
+
 			err := t.SendEvent(id, events.UserDoNotExists())
 			if err != nil {
 				logger.Error("Error while sending package to " + colors.Red(id) + "")
@@ -706,6 +745,7 @@ func (t *Teamserver) handleRequest(id string) {
 			if err = client.Connection.Close(); err != nil {
 				logger.Error("Failed to close client (" + id + ") socket")
 			}
+			t.RemoveClient(id)
 			return false
 		}
 
@@ -720,6 +760,7 @@ func (t *Teamserver) handleRequest(id string) {
 			if err != nil {
 				logger.Error("Failed to close client (" + id + ") socket")
 			}
+			t.RemoveClient(id)
 			return false
 		}
 
@@ -931,8 +972,18 @@ func (t *Teamserver) EventListenerError(ListenerName string, Error error) {
 			if t.EventsList[EventID].Body.SubEvent == packager.Type.Listener.Add {
 				if name, ok := t.EventsList[EventID].Body.Info["Name"]; ok {
 					if name == ListenerName {
-						t.EventsList[EventID].Body.Info["Status"] = "Offline"
-						t.EventsList[EventID].Body.Info["Error"] = Error.Error()
+						// don't mutate the shared Info map in place:
+						// eventsListCopy hands the same maps to lock-free
+						// readers. copy it and store a replacement package.
+						pk := t.EventsList[EventID]
+						info := make(map[string]any, len(pk.Body.Info))
+						for k, v := range pk.Body.Info {
+							info[k] = v
+						}
+						info["Status"] = "Offline"
+						info["Error"] = Error.Error()
+						pk.Body.Info = info
+						t.EventsList[EventID] = pk
 					}
 				}
 			}
@@ -1020,11 +1071,7 @@ func (t *Teamserver) EventAppend(event packager.Package) []packager.Package {
 		// drop the oldest events once the history cap is reached so a
 		// long-running server doesn't grow the list (and the replay to
 		// new clients) without bound
-		max := t.EventsListMax
-		if max <= 0 {
-			max = defaultEventsListMax
-		}
-		for len(t.EventsList) >= max {
+		for len(t.EventsList) >= defaultEventsListMax {
 			t.EventsList = t.EventsList[1:]
 		}
 

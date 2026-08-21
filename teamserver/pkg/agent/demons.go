@@ -628,11 +628,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_PROC_LIST:
 		var (
-			ProcessUI = Optional["FromProcessManager"].(string)
-			Value     = win32.FALSE
+			Value = win32.FALSE
 		)
 
-		if ProcessUI == "true" {
+		/* third-party clients may omit this field; default to console mode
+		 * instead of panicking the handler goroutine */
+		if ProcessUI, ok := Optional["FromProcessManager"].(string); ok && ProcessUI == "true" {
 			Value = win32.TRUE
 		}
 
@@ -2118,17 +2119,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				a.SocksSvr[i].Server.Close()
 
 				/* close every connection that the agent has with this socks proxy */
-				for client := range a.SocksSvr[i].Server.Clients {
+				for _, client := range a.SocksSvr[i].Server.ClientsSnapshot() {
 
 					/* close the client connection */
-					a.SocksClientClose(a.SocksSvr[i].Server.Clients[client])
+					a.SocksClientClose(client)
 
 					/* make a new job */
 					var job = Job{
 						Command: COMMAND_SOCKET,
 						Data: []any{
 							SOCKET_COMMAND_CLOSE,
-							a.SocksSvr[i].Server.Clients[client],
+							client,
 						},
 					}
 
@@ -2137,10 +2138,11 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 				}
 
-				/* remove the socks server from the array */
-				a.SocksSvr = append(a.SocksSvr[:i], a.SocksSvr[i+1:]...)
-
 			}
+
+			/* remove all socks servers from the array (not while range-
+			 * iterating it, that skips entries and corrupts the slice) */
+			a.SocksSvr = nil
 
 			a.SocksSvrMtx.Unlock()
 

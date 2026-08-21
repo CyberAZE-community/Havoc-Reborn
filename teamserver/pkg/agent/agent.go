@@ -15,7 +15,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"Havoc/pkg/common"
@@ -1282,10 +1281,6 @@ func (a *Agent) SocksServerRemove(Addr string) {
 }
 
 // ToMap returns the agent info as a map
-// toMapMtx serializes ToMap calls: marshalling temporarily strips the
-// pivot parent from the shared agent struct (see ToMap).
-var toMapMtx sync.Mutex
-
 func (a *Agent) ToMap() map[string]interface{} {
 	var (
 		ParentAgent *Agent
@@ -1293,22 +1288,36 @@ func (a *Agent) ToMap() map[string]interface{} {
 		MagicValue  string
 	)
 
-	// the pivot parent has to be stripped to avoid recursive marshalling.
-	// serialize ToMap calls so concurrent callers don't interleave the
-	// temporary mutation of the shared agent struct.
-	toMapMtx.Lock()
+	// marshal a copy instead of mutating the shared agent struct: nil-ing
+	// the pivot parent in place raced with other readers (PivotAddJob,
+	// dispatch, events). the pivot parent is stripped from the copy to
+	// avoid recursive marshalling. JobQueue/Tasks/Downloads are guarded by
+	// a.m, so they are copied into fresh slices under the lock; the copy
+	// still shares the elements themselves (accepted: they are only read
+	// while marshalling and never mutated through the returned map).
+	a.m.Lock()
 	ParentAgent = a.Pivots.Parent
-	a.Pivots.Parent = nil
+	agentCopy := Agent{
+		NameID:          a.NameID,
+		JobQueue:        append([]Job(nil), a.JobQueue...),
+		Tasks:           append([]Job(nil), a.Tasks...),
+		SessionDir:      a.SessionDir,
+		Active:          a.Active,
+		Reason:          a.Reason,
+		BofCallbacks:    a.BofCallbacks,
+		Info:            a.Info,
+		Pivots:          Pivots{Links: a.Pivots.Links},
+		Downloads:       append([]*Download(nil), a.Downloads...),
+		PortFwds:        a.PortFwds,
+		SocksCli:        a.SocksCli,
+		SocksSvr:        a.SocksSvr,
+		Encryption:      a.Encryption,
+		TaskedOnce:      a.TaskedOnce,
+		BackgroundCheck: a.BackgroundCheck,
+	}
+	a.m.Unlock()
 
-	// restore and unlock via defer: a panic in structs.Map must not
-	// leave the mutex held (bricking all future ToMap calls) or the
-	// pivot parent stripped
-	defer func() {
-		a.Pivots.Parent = ParentAgent
-		toMapMtx.Unlock()
-	}()
-
-	Info = structs.Map(a)
+	Info = structs.Map(&agentCopy)
 
 	Info["Info"].(map[string]interface{})["Listener"] = nil
 
@@ -1347,6 +1356,21 @@ func (agents *Agents) AgentsAppend(demon *Agent) []*Agent {
 	agents.Agents = append(agents.Agents, demon)
 	agents.m.Unlock()
 	return agents.Agents
+}
+
+// Remove drops the agent with the given NameID from the list and returns
+// it. returns nil if no agent with this NameID is registered.
+func (agents *Agents) Remove(nameID string) *Agent {
+	agents.m.Lock()
+	defer agents.m.Unlock()
+	for i := range agents.Agents {
+		if agents.Agents[i].NameID == nameID {
+			removed := agents.Agents[i]
+			agents.Agents = append(agents.Agents[:i], agents.Agents[i+1:]...)
+			return removed
+		}
+	}
+	return nil
 }
 
 func getWindowsVersionString(OsVersion []int) string {

@@ -395,14 +395,16 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			// exists: the NameID derives from the client-supplied AgentID,
 			// so without this check a service client could hijack another
 			// client's agent by re-registering the same AgentID, and any
-			// re-registration would inject a duplicate into ServerAgents
+			// re-registration would inject a duplicate into ServerAgents.
+			// hold agentOwnersMtx across the whole check-and-set so two
+			// concurrent registrations of the same NameID can't both pass
+			// the check; the ServerAgents append below still takes its own
+			// lock. the duplicate response is sent after unlocking to
+			// avoid holding the mutex across network I/O.
 			var duplicate bool
 
 			s.agentOwnersMtx.Lock()
-			owner, owned := s.agentOwners[AgentInstance.NameID]
-			s.agentOwnersMtx.Unlock()
-
-			if owned && owner != client {
+			if owner, owned := s.agentOwners[AgentInstance.NameID]; owned && owner != client {
 				duplicate = true
 			} else {
 				for _, srvAgent := range s.Data.ServerAgents.Snapshot() {
@@ -412,6 +414,12 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 					}
 				}
 			}
+
+			if !duplicate {
+				// bind the agent to the service client that registered it
+				s.agentOwners[AgentInstance.NameID] = client
+			}
+			s.agentOwnersMtx.Unlock()
 
 			if duplicate {
 				logger.Error(fmt.Sprintf("Service client tried to register an already registered agent (NameID: %v), rejecting", AgentInstance.NameID))
@@ -432,11 +440,6 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				}
 				return
 			}
-
-			// bind the agent to the service client that registered it
-			s.agentOwnersMtx.Lock()
-			s.agentOwners[AgentInstance.NameID] = client
-			s.agentOwnersMtx.Unlock()
 
 			s.Teamserver.AgentAdd(AgentInstance)
 
@@ -942,13 +945,27 @@ func (s *Service) ClientClose(client *ClientService) {
 			}
 
 			// drop agent ownership records
+			var ownedNameIDs []string
 			s.agentOwnersMtx.Lock()
 			for nameID, owner := range s.agentOwners {
 				if owner == client {
 					delete(s.agentOwners, nameID)
+					ownedNameIDs = append(ownedNameIDs, nameID)
 				}
 			}
 			s.agentOwnersMtx.Unlock()
+
+			// also remove the client's agents from ServerAgents: leaving
+			// them behind would orphan them — a reconnecting service client
+			// could never re-register them (rejected as duplicates) and
+			// operators would keep seeing dead sessions
+			for _, nameID := range ownedNameIDs {
+				if removedAgent := s.Data.ServerAgents.Remove(nameID); removedAgent != nil {
+					pk := events.Demons.MarkAs(removedAgent.NameID, "Dead")
+					s.Teamserver.EventAppend(pk)
+					s.Teamserver.EventBroadcast("", pk)
+				}
+			}
 
 			// close client connection
 			if s.clients[i].Conn != nil {

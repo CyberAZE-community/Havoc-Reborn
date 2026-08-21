@@ -81,10 +81,9 @@ func (p *Packer) Build() []byte {
     var Temp = make([]byte, 32)
 
     if bytes.Compare(p.AesKey, Temp) == 0 {
+        logger.Debug("No Aes Key specified")
         return p.data
     }
-
-    logger.Debug("No Aes Key specified")
     if (p.AesKey != nil) || (p.AesIV != nil) {
         p.data = crypt.XCryptBytesAES256(p.data, p.AesKey, p.AesIV)
     }
