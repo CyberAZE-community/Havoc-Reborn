@@ -62,7 +62,7 @@ void HavocNamespace::UserInterface::Widgets::Chat::setupUi( QWidget *Form )
 
 void HavocNamespace::UserInterface::Widgets::Chat::AppendText(const QString& Time, const QString& text) const
 {
-    QString t = Util::ColorText::Comment(Time) +" "+ text;
+    QString t = Util::ColorText::Comment( Time.toHtmlEscaped() ) +" "+ text;
 
     EventLogText->append( t );
 }

@@ -106,6 +106,13 @@ int AgentClass_init( PPyAgentClass self, PyObject *args, PyObject *kwds )
         }
     }
 
+    if ( self->AgentID == NULL )
+    {
+        spdlog::error( "[PyError] no agent with the specified id found" );
+        PyErr_SetString( PyExc_KeyError, "no agent with the specified id found" );
+        return -1;
+    }
+
     return 0;
 }
 

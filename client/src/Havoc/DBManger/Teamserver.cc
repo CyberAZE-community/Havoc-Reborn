@@ -46,9 +46,15 @@ bool HavocSpace::DBManager::updateTeamserverInfo( const Util::ConnectionInfo& co
     auto query = QSqlQuery();
     auto error = std::string();
 
-    /* persist UI-togglable connection flags for an existing profile;
-     * credentials stay untouched here */
-    query.prepare( "update Teamservers set IgnoreSSLErrors = :IgnoreSSLErrors where ProfileName = :ProfileName" );
+    /* persist UI-togglable connection flags and a changed password for an
+     * existing profile; the password keeps the "sha3:" prefixed form —
+     * unchanged profiles arrive here with PasswordIsHashed set and the
+     * stored hash in Password, so the hash is re-written as-is and never
+     * clobbered with plaintext */
+    query.prepare( "update Teamservers set Password = :Password, IgnoreSSLErrors = :IgnoreSSLErrors where ProfileName = :ProfileName" );
+    query.bindValue( ":Password",        connection.PasswordIsHashed ?
+                                         ( "sha3:" + connection.Password ).toStdString().c_str() :
+                                         HashPassword( connection.Password ).toStdString().c_str() );
     query.bindValue( ":IgnoreSSLErrors", connection.IgnoreSSLErrors ? 1 : 0 );
     query.bindValue( ":ProfileName",     connection.Name.toStdString().c_str() );
 

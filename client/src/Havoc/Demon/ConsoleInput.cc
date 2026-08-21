@@ -2400,7 +2400,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             {
                 DemonConsole->AppendRaw();
                 DemonConsole->AppendRaw( Prompt );
-                DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Util::ColorText::Comment( "[" + TaskID + "]") + " " + Util::ColorText::Cyan( CommandTaskInfo[ TaskID ] ) );
+                DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + Util::ColorText::Comment( "[" + TaskID + "]") + " " + Util::ColorText::Cyan( CommandTaskInfo[ TaskID ].toHtmlEscaped() ) );
             }
 
         CheckRegisteredCommands:
@@ -2462,11 +2462,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             for ( u32 i = 2; i < InputCommands.size(); i++ )
                                 PyTuple_SetItem( FuncArgs, i - 1, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
-                            {
-                                auto GilState = PyGILState_Ensure();
-                                Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
-                                PyGILState_Release( GilState );
-                            }
+                            /* hold the GIL for the whole result-handling
+                             * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                             * PyUnicode_AsUTF8), not just the call itself */
+                            auto GilState = PyGILState_Ensure();
+
+                            Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
                             if ( ! Path.empty() )
                             {
@@ -2480,6 +2481,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 PyErr_Clear();
                                 DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + " " + InputCommands[ 1 ] + ". Python module failed" );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2494,6 +2496,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 }
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2507,6 +2510,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 }
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 return false;
                             }
 
@@ -2527,6 +2531,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                         }
 
                         return true;
@@ -2563,11 +2568,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         for ( u32 i = 1; i < InputCommands.size(); i++ )
                             PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
-                        {
-                                auto GilState = PyGILState_Ensure();
-                                Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
-                                PyGILState_Release( GilState );
-                            }
+                        /* hold the GIL for the whole result-handling
+                         * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                         * PyUnicode_AsUTF8), not just the call itself */
+                        auto GilState = PyGILState_Ensure();
+
+                        Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
                         if ( ! Path.empty() )
                         {
@@ -2581,6 +2587,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             PyErr_Clear();
                             DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ". Python module failed" );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2595,6 +2602,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             }
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2608,6 +2616,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             }
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2628,6 +2637,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                         Py_CLEAR( Return );
                         Py_CLEAR( FuncArgs );
+                        PyGILState_Release( GilState );
                     }
 
                     return true;
@@ -2739,7 +2749,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     DemonConsole->AppendRaw();
                     DemonConsole->AppendRaw( Prompt );
-                    DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + CommandTaskInfo[ TaskID ] );
+                    DemonConsole->AppendRaw( Util::ColorText::Cyan( "[*]" ) + " " + CommandTaskInfo[ TaskID ].toHtmlEscaped() );
                 }
             }
 
@@ -2834,11 +2844,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 for ( u32 i = 1; i < InputCommands.size(); i++ )
                                     PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
 
-                                {
+                                /* hold the GIL for the whole result-handling
+                                 * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
+                                 * PyUnicode_AsUTF8), not just the call itself */
                                 auto GilState = PyGILState_Ensure();
+
                                 Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
-                                PyGILState_Release( GilState );
-                            }
 
                                 if ( ! Path.empty() )
                                 {
@@ -2852,6 +2863,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     PyErr_Clear();
                                     DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ". Python module failed" );
                                     Py_CLEAR( FuncArgs );
+                                    PyGILState_Release( GilState );
                                     return false;
                                 }
 
@@ -2870,6 +2882,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                     Py_CLEAR( Return );
                                     Py_CLEAR( FuncArgs );
+                                    PyGILState_Release( GilState );
 
                                     return false;
                                 }
@@ -2889,6 +2902,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                             }
 
                             return true;

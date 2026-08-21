@@ -39,15 +39,17 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
         /* if the connection never got established (refused, TLS failure,
          * closed during login) no disconnected() signal follows in most of
          * these cases: return to the connect dialog here so the client never
-         * just sits dead or exits on a login-screen error */
-        if ( Packager == nullptr && HavocX::HavocUserInterface != nullptr )
+         * just sits dead or exits on a login-screen error. HavocUserInterface
+         * only exists after the first teamserver package, so use the global
+         * application's dbManager which is created unconditionally */
+        if ( Packager == nullptr )
         {
             MessageBox( "Connection error", "Couldn't connect to the teamserver: " + ErrorString, QMessageBox::Critical );
 
             auto Connect = new UserInterface::Dialogs::Connect;
 
-            Connect->TeamserverList = HavocX::HavocUserInterface->dbManager->listTeamservers();
-            Connect->passDB( HavocX::HavocUserInterface->dbManager );
+            Connect->TeamserverList = HavocApplication->dbManager->listTeamservers();
+            Connect->passDB( HavocApplication->dbManager );
             Connect->setupUi( new QDialog );
 
             Connect->StartDialog( true );
@@ -88,7 +90,13 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
     QObject::connect( Socket, &QWebSocket::disconnected, this, [&]()
     {
-        MessageBox( "Teamserver error", "Lost connection to the teamserver: " + Socket->errorString(), QMessageBox::Critical );
+        /* a null TabSession means the session never got initialized (the
+         * login failed): the server already explained why via the
+         * InitConnection::Error box, so don't stack a generic
+         * "lost connection" box on top of it. same for a disconnect the
+         * user explicitly requested from the menu */
+        if ( ! UserDisconnect && HavocX::Teamserver.TabSession != nullptr )
+            MessageBox( "Teamserver error", "Lost connection to the teamserver: " + Socket->errorString(), QMessageBox::Critical );
 
         Socket->close();
 
@@ -118,8 +126,8 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
          * killing the whole client */
         auto Connect = new UserInterface::Dialogs::Connect;
 
-        Connect->TeamserverList = HavocX::HavocUserInterface->dbManager->listTeamservers();
-        Connect->passDB( HavocX::HavocUserInterface->dbManager );
+        Connect->TeamserverList = HavocApplication->dbManager->listTeamservers();
+        Connect->passDB( HavocApplication->dbManager );
         Connect->setupUi( new QDialog );
 
         /* StartDialog installs the new Connector and global teamserver
@@ -142,7 +150,12 @@ bool Connector::Disconnect()
 {
     if ( this->Socket != nullptr )
     {
-        this->Socket->disconnect();
+        /* close the socket instead of severing its signals: the
+         * disconnected handler then runs the normal teardown/reconnect
+         * flow, and the flag keeps it from showing a "lost connection"
+         * error box for a disconnect the user asked for */
+        UserDisconnect = true;
+        this->Socket->close();
         return true;
     }
 

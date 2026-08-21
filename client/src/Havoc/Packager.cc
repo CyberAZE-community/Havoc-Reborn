@@ -710,9 +710,9 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                             AgentType = "Demon";
 
                         Session.InteractedWidget->DemonCommands->Prompt = QString (
-                                Util::ColorText::Comment( QString( Package->Head.Time.c_str() ) + " [" + QString( Package->Head.User.c_str() ) + "]" ) +
-                                " " + Util::ColorText::UnderlinePink( AgentType ) +
-                                Util::ColorText::Cyan(" » ") + QString( Package->Body.Info[ "CommandLine" ].c_str() )
+                                Util::ColorText::Comment( QString( Package->Head.Time.c_str() ).toHtmlEscaped() + " [" + QString( Package->Head.User.c_str() ).toHtmlEscaped() + "]" ) +
+                                " " + Util::ColorText::UnderlinePink( AgentType.toHtmlEscaped() ) +
+                                Util::ColorText::Cyan(" » ") + QString( Package->Body.Info[ "CommandLine" ].c_str() ).toHtmlEscaped()
                         );
 
                         if ( ! Package->Body.Info[ "TaskMessage" ].empty() )
@@ -1040,7 +1040,7 @@ bool Packager::DispatchLoot( Util::Packager::PPackage Package )
             /* base64_decode_capped drops payloads over its cap with only
              * an spdlog warning; surface that here instead of silently
              * saving an empty loot file (same cap as global.cc) */
-            if ( Encoded.size() > 256 * 1024 * 1024 )
+            if ( Encoded.size() > Util::Base64PayloadCap )
             {
                 auto Error = QString( "Loot file \"%1\" from agent %2 exceeds the size cap and was dropped" ).arg( FileName, AgentID );
 

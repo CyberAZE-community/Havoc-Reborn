@@ -45,7 +45,7 @@ std::string Util::gen_random( const int len )
 QByteArray Util::base64_decode_capped( const QByteArray& Data )
 {
     /* 256 MiB of encoded text (~192 MiB decoded) */
-    if ( Data.size() > 256 * 1024 * 1024 )
+    if ( Data.size() > Util::Base64PayloadCap )
     {
         spdlog::warn( "dropping oversized base64 payload ({} bytes encoded)", Data.size() );
         return QByteArray();
