@@ -20,6 +20,18 @@ import (
 	"Havoc/pkg/packager"
 )
 
+// infoString returns the string value stored under Key in Info, or an
+// empty string when the key is missing or not a string. operator clients
+// (and any compromised one) control these maps, so every read of a
+// listener or payload config field must not assume the type.
+func infoString(Info map[string]any, Key string) string {
+	if val, ok := Info[Key].(string); ok {
+		return val
+	}
+
+	return ""
+}
+
 func (t *Teamserver) DispatchEvent(pk packager.Package) {
 	switch pk.Head.Event {
 
@@ -87,22 +99,22 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							}
 						)
 
-						if val, ok := pk.Body.Info["CommandID"]; ok {
+						if val, ok := pk.Body.Info["CommandID"].(string); ok {
 
 							if pk.Body.Info["CommandID"] == "Python Plugin" {
 
 								// TODO: move to own function.
-								logr.LogrInstance.AddAgentInput("Demon", pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+								logr.LogrInstance.AddAgentInput("Demon", infoString(pk.Body.Info, "DemonID"), pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 
 								if pk.Head.OneTime == "true" {
 									return
 								}
 
 								var backups = map[string]interface{}{
-									"TaskID":      pk.Body.Info["TaskID"].(string),
+									"TaskID":      infoString(pk.Body.Info, "TaskID"),
 									"DemonID":     DemonID,
 									"CommandID":   "",
-									"CommandLine": pk.Body.Info["CommandLine"].(string),
+									"CommandLine": infoString(pk.Body.Info, "CommandLine"),
 									"AgentType":   AgentType,
 								}
 
@@ -128,19 +140,19 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							} else if pk.Body.Info["CommandID"] == "Teamserver" {
 
 								// TODO: move to own function.
-								logr.LogrInstance.AddAgentInput("Demon", pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+								logr.LogrInstance.AddAgentInput("Demon", infoString(pk.Body.Info, "DemonID"), pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 
-								var Command = pk.Body.Info["Command"].(string)
+								var Command = infoString(pk.Body.Info, "Command")
 
 								if pk.Head.OneTime == "true" {
 									return
 								}
 
 								var backups = map[string]interface{}{
-									"TaskID":      pk.Body.Info["TaskID"].(string),
+									"TaskID":      infoString(pk.Body.Info, "TaskID"),
 									"DemonID":     DemonID,
 									"CommandID":   "",
-									"CommandLine": pk.Body.Info["CommandLine"].(string),
+									"CommandLine": infoString(pk.Body.Info, "CommandLine"),
 									"AgentType":   AgentType,
 								}
 
@@ -170,7 +182,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							} else {
 
 								// TODO: move to own function.
-								command, err = strconv.Atoi(val.(string))
+								command, err = strconv.Atoi(val)
 								if err != nil {
 
 									logger.Error("Failed to convert CommandID to integer: " + err.Error())
@@ -204,10 +216,10 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									}
 
 									if Agents[i].Pivots.Parent != nil {
-										logr.LogrInstance.AddAgentInput("Demon", Agents[i].NameID, pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+										logr.LogrInstance.AddAgentInput("Demon", Agents[i].NameID, pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 
 									} else {
-										logr.LogrInstance.AddAgentInput("Demon", pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+										logr.LogrInstance.AddAgentInput("Demon", infoString(pk.Body.Info, "DemonID"), pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 									}
 
 									if pk.Head.OneTime == "true" {
@@ -215,10 +227,10 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									}
 
 									var backups = map[string]interface{}{
-										"TaskID":      pk.Body.Info["TaskID"].(string),
+										"TaskID":      infoString(pk.Body.Info, "TaskID"),
 										"DemonID":     DemonID,
 										"CommandID":   "",
-										"CommandLine": pk.Body.Info["CommandLine"].(string),
+										"CommandLine": infoString(pk.Body.Info, "CommandLine"),
 										"AgentType":   AgentType,
 									}
 
@@ -246,24 +258,24 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 					} else {
 
-						for _, a := range t.Service.Agents {
+						for _, a := range t.Service.AgentsSnapshot() {
 							if a.MagicValue == fmt.Sprintf("0x%x", Agents[i].Info.MagicValue) {
 
 								// Set agent type
 								AgentType = a.Name
 
 								if pk.Body.Info["CommandID"] == "Python Plugin" {
-									logr.LogrInstance.AddAgentInput(AgentType, pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+									logr.LogrInstance.AddAgentInput(AgentType, infoString(pk.Body.Info, "DemonID"), pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 
 									if pk.Head.OneTime == "true" {
 										return
 									}
 
 									var backups = map[string]interface{}{
-										"TaskID":      pk.Body.Info["TaskID"].(string),
+										"TaskID":      infoString(pk.Body.Info, "TaskID"),
 										"DemonID":     DemonID,
 										"CommandID":   "",
-										"CommandLine": pk.Body.Info["CommandLine"].(string),
+										"CommandLine": infoString(pk.Body.Info, "CommandLine"),
 										"AgentType":   AgentType,
 									}
 
@@ -287,11 +299,17 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									return
 
 								} else {
-									// Send command to agent service
-									a.SendTask(pk.Body.Info, Agents[i].ToMap())
+									// Send command to agent service. never leak
+									// the agent's encryption keys to the service
+									// agent (mirrors handlers.go's scrub).
+									AgentData := Agents[i].ToMap()
+									if m, ok := AgentData.(map[string]interface{}); ok {
+										delete(m, "Encryption")
+									}
+									a.SendTask(pk.Body.Info, AgentData)
 
 									// log agent input
-									logr.LogrInstance.AddAgentInput(a.Name, pk.Body.Info["DemonID"].(string), pk.Head.User, pk.Body.Info["TaskID"].(string), pk.Body.Info["CommandLine"].(string), time.Now().UTC().Format("02/01/2006 15:04:05"))
+									logr.LogrInstance.AddAgentInput(a.Name, infoString(pk.Body.Info, "DemonID"), pk.Head.User, infoString(pk.Body.Info, "TaskID"), infoString(pk.Body.Info, "CommandLine"), time.Now().UTC().Format("02/01/2006 15:04:05"))
 								}
 
 							}
@@ -311,10 +329,10 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 			}
 
 			var backups = map[string]interface{}{
-				"TaskID":      pk.Body.Info["TaskID"].(string),
+				"TaskID":      infoString(pk.Body.Info, "TaskID"),
 				"DemonID":     DemonID,
 				"CommandID":   "",
-				"CommandLine": pk.Body.Info["CommandLine"].(string),
+				"CommandLine": infoString(pk.Body.Info, "CommandLine"),
 				"AgentType":   AgentType,
 			}
 
@@ -355,7 +373,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 		case packager.Type.Listener.Add:
 
-			var Protocol = pk.Body.Info["Protocol"].(string)
+			var Protocol = infoString(pk.Body.Info, "Protocol")
 
 			switch Protocol {
 
@@ -368,38 +386,38 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 					Uris     []string
 				)
 
-				HostBind = pk.Body.Info["HostBind"].(string)
+				HostBind = infoString(pk.Body.Info, "HostBind")
 
-				for _, s := range strings.Split(pk.Body.Info["Hosts"].(string), ", ") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Hosts"), ", ") {
 					if len(s) > 0 {
 						Hosts = append(Hosts, s)
 					}
 				}
 
-				for _, s := range strings.Split(pk.Body.Info["Headers"].(string), "\r\n") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Headers"), "\r\n") {
 					if len(s) > 0 {
 						Headers = append(Headers, s)
 					}
 				}
 
-				for _, s := range strings.Split(pk.Body.Info["Uris"].(string), ", ") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Uris"), ", ") {
 					if len(s) > 0 {
 						Uris = append(Uris, s)
 					}
 				}
 
 				var Config = handlers.HTTPConfig{
-					Name:         pk.Body.Info["Name"].(string),
+					Name:         infoString(pk.Body.Info, "Name"),
 					Hosts:        Hosts,
 					HostBind:     HostBind,
-					HostRotation: pk.Body.Info["HostRotation"].(string),
-					PortBind:     pk.Body.Info["PortBind"].(string),
-					PortConn:     pk.Body.Info["PortConn"].(string),
+					HostRotation: infoString(pk.Body.Info, "HostRotation"),
+					PortBind:     infoString(pk.Body.Info, "PortBind"),
+					PortConn:     infoString(pk.Body.Info, "PortConn"),
 					Headers:      Headers,
 					Uris:         Uris,
-					HostHeader:   pk.Body.Info["HostHeader"].(string),
-					UserAgent:    pk.Body.Info["UserAgent"].(string),
-					BehindRedir:  t.Profile.Config.Demon.TrustXForwardedFor,
+					HostHeader:   infoString(pk.Body.Info, "HostHeader"),
+					UserAgent:    infoString(pk.Body.Info, "UserAgent"),
+					BehindRedir:  t.Profile.Config.Demon != nil && t.Profile.Config.Demon.TrustXForwardedFor,
 				}
 
 				if val, ok := pk.Body.Info["Proxy Enabled"].(string); ok {
@@ -415,7 +433,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy type not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy type not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -432,7 +450,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy host not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy host not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -449,7 +467,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy port not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy port not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -467,7 +485,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy username not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy username not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -485,7 +503,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy password not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy password not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -498,7 +516,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 					}
 				}
 
-				if pk.Body.Info["Secure"].(string) == "true" {
+				if infoString(pk.Body.Info, "Secure") == "true" {
 					Config.Secure = true
 				}
 
@@ -507,7 +525,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 						id := key.(string)
 						client := value.(*Client)
 						if client.Username == pk.Head.User {
-							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), err))
+							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), err))
 							if err != nil {
 								logger.Error("Failed to send Event: " + err.Error())
 							}
@@ -540,7 +558,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 						id := key.(string)
 						client := value.(*Client)
 						if client.Username == pk.Head.User {
-							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), err))
+							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), err))
 							if err != nil {
 								logger.Error("Failed to send Event: " + err.Error())
 							}
@@ -574,7 +592,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 						id := key.(string)
 						client := value.(*Client)
 						if client.Username == pk.Head.User {
-							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), err))
+							err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), err))
 							if err != nil {
 								logger.Error("Failed to send Event: " + err.Error())
 							}
@@ -591,7 +609,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 				// check if the service endpoint is up and available
 				if t.Service != nil {
 
-					for _, listener := range t.Service.Listeners {
+					for _, listener := range t.Service.ListenersSnapshot() {
 
 						if Protocol == listener.Name {
 
@@ -601,8 +619,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							)
 
 							// retrieve the listener name
-							if val, ok := pk.Body.Info["Name"]; ok {
-								ListenerName = val.(string)
+							if val, ok := pk.Body.Info["Name"].(string); ok {
+								ListenerName = val
 							}
 
 							// try to start the listener.
@@ -640,10 +658,10 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 		case packager.Type.Listener.Remove:
 
-			if val, ok := pk.Body.Info["Name"]; ok {
-				t.ListenerRemove(val.(string))
+			if val, ok := pk.Body.Info["Name"].(string); ok {
+				t.ListenerRemove(val)
 
-				var p = events.Listener.ListenerRemove(val.(string))
+				var p = events.Listener.ListenerRemove(val)
 
 				t.EventAppend(p)
 				t.EventBroadcast("", p)
@@ -653,7 +671,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 		case packager.Type.Listener.Edit:
 
-			var Protocol = pk.Body.Info["Protocol"].(string)
+			var Protocol = infoString(pk.Body.Info, "Protocol")
 			switch Protocol {
 
 			case handlers.AGENT_HTTP, handlers.AGENT_HTTPS:
@@ -664,37 +682,37 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 					Uris     []string
 				)
 
-				HostBind = pk.Body.Info["HostBind"].(string)
+				HostBind = infoString(pk.Body.Info, "HostBind")
 
-				for _, s := range strings.Split(pk.Body.Info["Hosts"].(string), ", ") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Hosts"), ", ") {
 					if len(s) > 0 {
 						Hosts = append(Hosts, s)
 					}
 				}
 
-				for _, s := range strings.Split(pk.Body.Info["Headers"].(string), "\r\n") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Headers"), "\r\n") {
 					if len(s) > 0 {
 						Headers = append(Headers, s)
 					}
 				}
 
-				for _, s := range strings.Split(pk.Body.Info["Uris"].(string), ", ") {
+				for _, s := range strings.Split(infoString(pk.Body.Info, "Uris"), ", ") {
 					if len(s) > 0 {
 						Uris = append(Uris, s)
 					}
 				}
 
 				var Config = handlers.HTTPConfig{
-					Name:         pk.Body.Info["Name"].(string),
+					Name:         infoString(pk.Body.Info, "Name"),
 					Hosts:        Hosts,
 					HostBind:     HostBind,
-					HostRotation: pk.Body.Info["HostRotation"].(string),
-					PortBind:     pk.Body.Info["PortBind"].(string),
-					PortConn:     pk.Body.Info["PortConn"].(string),
+					HostRotation: infoString(pk.Body.Info, "HostRotation"),
+					PortBind:     infoString(pk.Body.Info, "PortBind"),
+					PortConn:     infoString(pk.Body.Info, "PortConn"),
 					Headers:      Headers,
 					Uris:         Uris,
-					HostHeader:   pk.Body.Info["HostHeader"].(string),
-					UserAgent:    pk.Body.Info["UserAgent"].(string),
+					HostHeader:   infoString(pk.Body.Info, "HostHeader"),
+					UserAgent:    infoString(pk.Body.Info, "UserAgent"),
 				}
 
 				if val, ok := pk.Body.Info["Proxy Enabled"].(string); ok {
@@ -710,7 +728,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy type not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy type not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -727,7 +745,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy host not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy host not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -744,7 +762,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy port not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy port not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -762,7 +780,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy username not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy username not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -780,7 +798,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 								id := key.(string)
 								client := value.(*Client)
 								if client.Username == pk.Head.User {
-									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, pk.Body.Info["Name"].(string), errors.New("proxy password not specified")))
+									err := t.SendEvent(id, events.Listener.ListenerError(pk.Head.User, infoString(pk.Body.Info, "Name"), errors.New("proxy password not specified")))
 									if err != nil {
 										logger.Error("Failed to send Event: " + err.Error())
 									}
@@ -793,7 +811,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 					}
 				}
 
-				if pk.Body.Info["Secure"].(string) == "true" {
+				if infoString(pk.Body.Info, "Secure") == "true" {
 					Config.Secure = true
 				}
 
@@ -904,11 +922,11 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 		switch pk.Body.SubEvent {
 		case packager.Type.Gate.Stageless:
 			var (
-				AgentType      = pk.Body.Info["AgentType"].(string)
-				ListenerName   = pk.Body.Info["Listener"].(string)
-				Arch           = pk.Body.Info["Arch"].(string)
-				Format         = pk.Body.Info["Format"].(string)
-				Config         = pk.Body.Info["Config"].(string)
+				AgentType      = infoString(pk.Body.Info, "AgentType")
+				ListenerName   = infoString(pk.Body.Info, "Listener")
+				Arch           = infoString(pk.Body.Info, "Arch")
+				Format         = infoString(pk.Body.Info, "Format")
+				Config         = infoString(pk.Body.Info, "Config")
 				SendConsoleMsg func(MsgType, Message string)
 				ClientID       string
 			)
@@ -932,6 +950,21 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 			if AgentType == "Demon" {
 				go func() {
+					var PayloadBuilder *builder.Builder
+
+					defer func() {
+						// a panic in this goroutine would take down the whole
+						// teamserver; recover it, tell the operator, and still
+						// clean up the temp build directory
+						if r := recover(); r != nil {
+							logger.Error(fmt.Sprintf("Recovered from panic during payload build: %v", r))
+							SendConsoleMsg("Error", "Payload build failed unexpectedly (teamserver recovered from an internal error)")
+						}
+						if PayloadBuilder != nil {
+							PayloadBuilder.DeletePayload()
+						}
+					}()
+
 					var ConfigMap = make(map[string]any)
 
 					err := json.Unmarshal([]byte(Config), &ConfigMap)
@@ -940,7 +973,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 						return
 					}
 
-					var PayloadBuilder = builder.NewBuilder(builder.BuilderConfig{
+					PayloadBuilder = builder.NewBuilder(builder.BuilderConfig{
 						Compiler64: t.Settings.Compiler64,
 						Compiler86: t.Settings.Compiler32,
 						Nasm:       t.Settings.Nasm,
@@ -1018,13 +1051,10 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							}
 						}
 					}
-
-					/* always clean up the temp build directory, even on failed builds */
-					PayloadBuilder.DeletePayload()
 				}()
 			} else {
 				// send to Services
-				for _, Agent := range t.Service.Agents {
+				for _, Agent := range t.Service.AgentsSnapshot() {
 					if Agent.Name == AgentType {
 						var ConfigMap = make(map[string]any)
 

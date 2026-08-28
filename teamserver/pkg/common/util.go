@@ -105,7 +105,9 @@ func DecodeUTF16(b []byte) string {
 
 	lb := len(b)
 
-	for i := 0; i < lb; i += 2 {
+	// an odd-length buffer would read b[i+1] past the end on the last
+	// iteration; this is implant-controlled data, so clamp instead of panicking
+	for i := 0; i+1 < lb; i += 2 {
 		u16s[0] = uint16(b[i]) + (uint16(b[i+1]) << 8)
 		r := utf16.Decode(u16s)
 		n := utf8.EncodeRune(b8buf, r[0])

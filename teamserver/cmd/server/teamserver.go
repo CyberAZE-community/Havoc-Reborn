@@ -33,6 +33,19 @@ import (
 	"Havoc/pkg/utils"
 )
 
+// how long a websocket may sit connected without completing the operator
+// login handshake before the teamserver drops it
+const UnauthenticatedClientTimeout = 30 * time.Second
+
+// WebSocketReadLimit caps a single operator message so a malicious peer
+// can't balloon teamserver memory with an oversized frame. Generous enough
+// for large build requests (embedded payloads/binaries).
+const WebSocketReadLimit = 64 << 20
+
+// how long a single operator-event write may take before the client is
+// considered stalled and dropped
+const SendEventTimeout = 10 * time.Second
+
 func NewTeamserver(DatabasePath string) *Teamserver {
 	if d, err := db.DatabaseNew(DatabasePath); err != nil {
 		logger.Error("Failed to create a new db: " + err.Error())
@@ -175,6 +188,8 @@ func (t *Teamserver) Start() {
 			return
 		}
 
+		WebSocket.SetReadLimit(WebSocketReadLimit)
+
 		t.Clients.Store(ClientID,
 			&Client{
 				Username:      "",
@@ -187,17 +202,54 @@ func (t *Teamserver) Start() {
 
 		// Handle connections in a new goroutine.
 		go t.handleRequest(ClientID)
+
+		// a socket that never sends its login packet would otherwise sit in
+		// the client map forever; drop it after a grace period. closing the
+		// connection unblocks handleRequest's ReadMessage, which runs the
+		// normal disconnect cleanup itself.
+		go func() {
+			time.Sleep(UnauthenticatedClientTimeout)
+
+			value, isOk := t.Clients.Load(ClientID)
+			if !isOk {
+				return
+			}
+			client := value.(*Client)
+
+			// check the flag under the client's own mutex so a client that
+			// completes the login handshake right now isn't dropped
+			// mid-session
+			client.Mutex.Lock()
+			drop := !client.Authenticated
+			client.Mutex.Unlock()
+
+			if drop {
+				logger.Warn("Dropping unauthenticated client connection (" + colors.Red(client.GlobalIP) + ")")
+				if err := client.Connection.Close(); err != nil {
+					logger.Error("Error while closing Client connection: " + err.Error())
+				}
+				t.RemoveClient(ClientID)
+			}
+		}()
 	})
 
 	t.Server.Engine.POST("/:endpoint", func(context *gin.Context) {
 		var endpoint = context.Request.RequestURI[1:]
 
-		if len(t.Endpoints) > 0 {
-			for i := range t.Endpoints {
-				if t.Endpoints[i].Endpoint == endpoint {
-					t.Endpoints[i].Function(context)
-				}
+		// snapshot the matching handlers under RLock and run them without
+		// holding it: a handler may add or remove endpoints, and iterating
+		// the live slice across the unlock would index out of range
+		t.EndpointsMutex.RLock()
+		var fns []func(*gin.Context)
+		for i := range t.Endpoints {
+			if t.Endpoints[i].Endpoint == endpoint {
+				fns = append(fns, t.Endpoints[i].Function)
 			}
+		}
+		t.EndpointsMutex.RUnlock()
+
+		for _, fn := range fns {
+			fn(context)
 		}
 	})
 
@@ -320,7 +372,7 @@ func (t *Teamserver) Start() {
 				HostBind:     listener.HostBind,
 				Methode:      listener.Methode,
 				HostRotation: listener.HostRotation,
-				BehindRedir:  t.Profile.Config.Demon.TrustXForwardedFor,
+				BehindRedir:  t.Profile.Config.Demon != nil && t.Profile.Config.Demon.TrustXForwardedFor,
 				PortBind:     strconv.Itoa(listener.PortBind),
 				PortConn:     strconv.Itoa(listener.PortConn),
 				UserAgent:    listener.UserAgent,
@@ -477,7 +529,7 @@ func (t *Teamserver) Start() {
 			HandlerData.UserAgent = getConfigString("UserAgent")
 			HandlerData.Headers = strings.Split(getConfigString("Headers"), "\r\n")
 			HandlerData.Uris = strings.Split(getConfigString("Uris"), ", ")
-			HandlerData.BehindRedir = t.Profile.Config.Demon.TrustXForwardedFor
+			HandlerData.BehindRedir = t.Profile.Config.Demon != nil && t.Profile.Config.Demon.TrustXForwardedFor
 
 			HandlerData.Secure = false
 			if getConfigString("Secure") == "true" {
@@ -591,12 +643,16 @@ func (t *Teamserver) Start() {
 		// check if the agent has a parent
 		parentID, err := t.ParentOf(Agent)
 		if err == nil {
-			Agent.Pivots.Parent = t.AgentInstance(parentID)
+			if parent := t.AgentInstance(parentID); parent != nil {
+				Agent.PivotParentSet(parent)
+			}
 		}
 		// check if the agent has any links
 		AgentsIDs := t.LinksOf(Agent)
 		for _, AgentID := range AgentsIDs {
-			Agent.Pivots.Links = append(Agent.Pivots.Links, t.AgentInstance(AgentID))
+			if link := t.AgentInstance(AgentID); link != nil {
+				Agent.PivotLinkAdd(link)
+			}
 		}
 	}
 
@@ -630,7 +686,10 @@ func (t *Teamserver) handleRequest(id string) {
 				if err := client.Connection.Close(); err != nil {
 					logger.Error("Error while closing Client connection: " + err.Error())
 				}
-				if client.Authenticated {
+				client.Mutex.Lock()
+				authenticated := client.Authenticated
+				client.Mutex.Unlock()
+				if authenticated {
 					// only append to the event history here; the
 					// RemoveClient below broadcasts UserDisconnected
 					// for authenticated clients itself
@@ -649,6 +708,11 @@ func (t *Teamserver) handleRequest(id string) {
 	}
 
 	client := value.(*Client)
+
+	// the first read must be the login packet: bound it so a silent peer
+	// can't hold the read open. cleared once the client authenticates.
+	client.Connection.SetReadDeadline(time.Now().Add(UnauthenticatedClientTimeout))
+
 	_, NewClient, err := client.Connection.ReadMessage()
 
 	if err != nil {
@@ -696,6 +760,9 @@ func (t *Teamserver) handleRequest(id string) {
 			if err != nil {
 				logger.Error("Error while sending package to " + colors.Red(id) + "")
 			}
+			if err := client.Connection.Close(); err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
 			t.RemoveClient(id)
 			return
 		}
@@ -718,6 +785,9 @@ func (t *Teamserver) handleRequest(id string) {
 				if err != nil {
 					logger.Error("couldn't send event to client "+colors.Yellow(id)+":", err)
 				}
+				if err := client.Connection.Close(); err != nil {
+					logger.Error("Failed to close client (" + id + ") socket")
+				}
 				t.RemoveClient(id)
 				isExist = true
 				return false
@@ -730,6 +800,9 @@ func (t *Teamserver) handleRequest(id string) {
 		User, ok := pk.Body.Info["User"].(string)
 		if !ok {
 			logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
+			if err := client.Connection.Close(); err != nil {
+				logger.Error("Failed to close client (" + id + ") socket")
+			}
 			t.RemoveClient(id)
 			return false
 		}
@@ -766,7 +839,9 @@ func (t *Teamserver) handleRequest(id string) {
 
 		logger.Good("User <" + colors.Blue(User) + "> " + colors.Green("Authenticated"))
 
+		client.Mutex.Lock()
 		client.Authenticated = true
+		client.Mutex.Unlock()
 		client.ClientID = id
 		client.Username = User
 
@@ -778,6 +853,11 @@ func (t *Teamserver) handleRequest(id string) {
 	}
 
 	t.LoginSuccess(client.LoginIP())
+
+	// authenticated: drop the pre-auth read deadline now, before syncing
+	// the event history — a large history must not eat into the 30s budget
+	// and disconnect a freshly authenticated operator
+	client.Connection.SetReadDeadline(time.Time{})
 
 	err = t.SendEvent(id, events.Authenticated(true))
 	if err != nil {
@@ -938,11 +1018,29 @@ func (t *Teamserver) EventBroadcast(ExceptClient string, pk packager.Package) {
 
 	t.Clients.Range(func(key, value any) bool {
 		ClientID := key.(string)
-		if ExceptClient != ClientID {
-			err := t.SendEvent(ClientID, pk)
-			if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-				logger.Error("SendEvent error: ", colors.Red(err))
-			}
+		if ExceptClient == ClientID {
+			return true
+		}
+
+		// never send events to sockets that haven't completed the operator
+		// login handshake: a silent websocket that never sends its login
+		// packet stays in this map until it times out, and without this
+		// check it would receive every broadcast (including new-session
+		// packages that carry the agent AES keys)
+		client, ok := value.(*Client)
+		if !ok {
+			return true
+		}
+		client.Mutex.Lock()
+		authenticated := client.Authenticated
+		client.Mutex.Unlock()
+		if !authenticated {
+			return true
+		}
+
+		err := t.SendEvent(ClientID, pk)
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			logger.Error("SendEvent error: ", colors.Red(err))
 		}
 		return true
 	})
@@ -1009,10 +1107,23 @@ func (t *Teamserver) SendEvent(id string, pk packager.Package) error {
 		client.Mutex.Lock()
 		defer client.Mutex.Unlock()
 
-		err = client.Connection.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
-		if err != nil {
+		// bound the write: a stalled client must not block event
+		// broadcasts (and everything serialized behind this mutex) forever
+		if err = client.Connection.SetWriteDeadline(time.Now().Add(SendEventTimeout)); err != nil {
 			return err
 		}
+
+		err = client.Connection.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+		if err != nil {
+			// close the socket so the read loop runs its normal
+			// disconnect cleanup instead of lingering half-dead
+			if closeErr := client.Connection.Close(); closeErr != nil {
+				logger.Error("Error while closing stalled client connection: " + closeErr.Error())
+			}
+			return err
+		}
+
+		_ = client.Connection.SetWriteDeadline(time.Time{})
 
 	} else {
 		return errors.New(fmt.Sprintf("client (%v) doesn't exist anymore", colors.Red(id)))
@@ -1027,12 +1138,12 @@ func (t *Teamserver) RemoveClient(ClientID string) {
 
 	if isOk {
 		client := value.(*Client)
-		var (
-			userDisconnected = client.Username
-			Authenticated    = client.Authenticated
-		)
+		client.Mutex.Lock()
+		userDisconnected := client.Username
+		authenticated := client.Authenticated
+		client.Mutex.Unlock()
 
-		if Authenticated {
+		if authenticated {
 			t.EventBroadcast(ClientID, events.ChatLog.UserDisconnected(userDisconnected))
 			for UserID := range t.Users {
 				if userDisconnected == t.Users[UserID].Name {
@@ -1220,6 +1331,9 @@ func (t *Teamserver) FindSystemPackages() bool {
 }
 
 func (t *Teamserver) EndpointAdd(endpoint *Endpoint) bool {
+	t.EndpointsMutex.Lock()
+	defer t.EndpointsMutex.Unlock()
+
 	for _, e := range t.Endpoints {
 		if e.Endpoint == endpoint.Endpoint {
 			return false
@@ -1232,6 +1346,9 @@ func (t *Teamserver) EndpointAdd(endpoint *Endpoint) bool {
 }
 
 func (t *Teamserver) EndpointRemove(endpoint string) []*Endpoint {
+	t.EndpointsMutex.Lock()
+	defer t.EndpointsMutex.Unlock()
+
 	for i := range t.Endpoints {
 		if t.Endpoints[i].Endpoint == endpoint {
 			t.Endpoints = append(t.Endpoints[:i], t.Endpoints[i+1:]...)

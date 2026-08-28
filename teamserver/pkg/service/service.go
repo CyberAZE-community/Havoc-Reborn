@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -24,13 +25,130 @@ import (
 // Service API Module
 // Interact with external services (Custom Agents, ExternalC2s etc.)
 
+const (
+	// service login throttling, mirroring the operator login throttling
+	svcLoginMaxFailures = 5
+	svcLoginLockout     = 5 * time.Minute
+	svcLoginAttemptsMax = 10000
+
+	// WebSocketReadLimit caps a single service message so a malicious peer
+	// can't balloon teamserver memory with an oversized frame.
+	WebSocketReadLimit = 64 << 20
+
+	// UnauthenticatedTimeout bounds how long a service connection may sit
+	// without completing the login handshake.
+	UnauthenticatedTimeout = 30 * time.Second
+)
+
 func NewService(engine *gin.Engine) *Service {
 	var service = new(Service)
 
 	service.engine = engine
 	service.agentOwners = make(map[string]*ClientService)
+	service.loginAttempts = make(map[string]*loginAttempt)
 
 	return service
+}
+
+// AgentsSnapshot returns a copy of the registered service agents so callers
+// can iterate without racing concurrent registrations/removals.
+func (s *Service) AgentsSnapshot() []*AgentService {
+	s.stateMtx.RLock()
+	defer s.stateMtx.RUnlock()
+
+	var out = make([]*AgentService, len(s.Agents))
+	copy(out, s.Agents)
+	return out
+}
+
+// ListenersSnapshot returns a copy of the registered service listeners.
+func (s *Service) ListenersSnapshot() []*ListenerService {
+	s.stateMtx.RLock()
+	defer s.stateMtx.RUnlock()
+
+	var out = make([]*ListenerService, len(s.Listeners))
+	copy(out, s.Listeners)
+	return out
+}
+
+// loginThrottled reports whether the source IP is currently locked out
+// after too many failed service logins.
+func (s *Service) loginThrottled(ip string) bool {
+	s.loginMtx.Lock()
+	defer s.loginMtx.Unlock()
+
+	attempt, ok := s.loginAttempts[ip]
+	if !ok {
+		return false
+	}
+
+	if time.Now().Before(attempt.LockedUntil) {
+		return true
+	}
+
+	// lockout expired (or was never set): reset
+	delete(s.loginAttempts, ip)
+	return false
+}
+
+// loginFailure records a failed service login from the source IP and locks
+// it out once the failure threshold is reached.
+func (s *Service) loginFailure(ip string) {
+	s.loginMtx.Lock()
+	defer s.loginMtx.Unlock()
+
+	// bound the map against attacker-churned source IPs: sweep expired
+	// entries first and only as a last resort drop the lockout that
+	// expires soonest
+	if len(s.loginAttempts) >= svcLoginAttemptsMax {
+		now := time.Now()
+		for k, a := range s.loginAttempts {
+			if !now.Before(a.LockedUntil) {
+				delete(s.loginAttempts, k)
+			}
+		}
+		for len(s.loginAttempts) >= svcLoginAttemptsMax {
+			oldest := ""
+			var oldestLock time.Time
+			for k, a := range s.loginAttempts {
+				if oldest == "" || a.LockedUntil.Before(oldestLock) {
+					oldest = k
+					oldestLock = a.LockedUntil
+				}
+			}
+			delete(s.loginAttempts, oldest)
+		}
+	}
+
+	attempt, ok := s.loginAttempts[ip]
+	if !ok {
+		attempt = &loginAttempt{}
+		s.loginAttempts[ip] = attempt
+	}
+
+	attempt.Failures++
+	if attempt.Failures >= svcLoginMaxFailures {
+		attempt.LockedUntil = time.Now().Add(svcLoginLockout)
+		logger.Warn(fmt.Sprintf("Too many failed service logins from %v - locking out for %v", colors.Red(ip), svcLoginLockout))
+	}
+}
+
+// loginSuccess clears the failed-login counter for the source IP.
+func (s *Service) loginSuccess(ip string) {
+	s.loginMtx.Lock()
+	defer s.loginMtx.Unlock()
+
+	delete(s.loginAttempts, ip)
+}
+
+// remoteIP strips the port from a websocket peer address; throttling has to
+// key on the host alone since every reconnect comes from a new source port.
+func remoteIP(conn *websocket.Conn) string {
+	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		return conn.RemoteAddr().String()
+	}
+	return host
 }
 
 // OwnsAgent reports whether the given service client registered the agent
@@ -54,20 +172,45 @@ func (s *Service) Start() {
 			return
 		}
 
-		go s.handleConnection(WebSocket)
+		WebSocket.SetReadLimit(WebSocketReadLimit)
+
+		// the login packet must arrive promptly; bound the pre-auth read so
+		// unauthenticated sockets can't sit on the handler forever
+		WebSocket.SetReadDeadline(time.Now().Add(UnauthenticatedTimeout))
+
+		var client = new(ClientService)
+		client.Conn = WebSocket
+
+		// watchdog mirroring the operator endpoint: drop the connection if
+		// it never completes authentication. closing the connection
+		// unblocks authenticate's ReadJSON, which unwinds the handler.
+		go func() {
+			time.Sleep(UnauthenticatedTimeout)
+
+			client.Mutex.Lock()
+			authed := client.Authenticated
+			client.Mutex.Unlock()
+
+			if !authed {
+				logger.Warn("Dropping unauthenticated service client connection (" + colors.Red(WebSocket.RemoteAddr().String()) + ")")
+				err := WebSocket.Close()
+				if err != nil {
+					logger.Error("Error while closing service client connection: " + err.Error())
+				}
+			}
+		}()
+
+		go s.handleConnection(client)
 	})
 
 }
 
-func (s *Service) handleConnection(socket *websocket.Conn) {
+func (s *Service) handleConnection(client *ClientService) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(fmt.Sprintf("Recovered from panic while handling service client: %v", r))
 		}
 	}()
-
-	var client = new(ClientService)
-	client.Conn = socket
 
 	if !s.authenticate(client) {
 		logger.Error("Failed to authenticate service client")
@@ -80,14 +223,24 @@ func (s *Service) handleConnection(socket *websocket.Conn) {
 		return
 	}
 
+	client.Mutex.Lock()
+	client.Authenticated = true
+	// authenticated: drop the pre-auth read deadline
+	client.Conn.SetReadDeadline(time.Time{})
+	client.Mutex.Unlock()
+
 	// now add the new connected client
+	s.stateMtx.Lock()
 	s.clients = append(s.clients, client)
+	s.stateMtx.Unlock()
+
+	// ensure the client is torn down (and its agents/listeners
+	// unregistered) even if routine panics instead of returning normally;
+	// ClientClose is a no-op once the client is no longer in the list
+	defer s.ClientClose(client)
 
 	// dispatch incoming events
 	s.routine(client)
-
-	// close connection and remove from service client list
-	s.ClientClose(client)
 }
 
 func (s *Service) authenticate(client *ClientService) bool {
@@ -124,6 +277,16 @@ func (s *Service) authenticate(client *ClientService) bool {
 
 	if AuthRequest.Head.Type == HeadRegister {
 
+		var RemoteIP = remoteIP(client.Conn)
+
+		// reject locked-out IPs without counting another failure:
+		// re-arming on every probe would let an attacker extend the
+		// lockout indefinitely
+		if s.loginThrottled(RemoteIP) {
+			logger.Error("Service login attempt from throttled IP (" + colors.Red(RemoteIP) + ")")
+			return false
+		}
+
 		Hasher.Write([]byte(AuthRequest.Body.Pass))
 		UserPass = hex.EncodeToString(Hasher.Sum(nil))
 		Hasher.Reset()
@@ -134,7 +297,10 @@ func (s *Service) authenticate(client *ClientService) bool {
 
 		if UserPass == ServicePass {
 			logger.Debug("Service client authenticated")
+			s.loginSuccess(RemoteIP)
 			Authed = true
+		} else {
+			s.loginFailure(RemoteIP)
 		}
 
 		AuthResponse["Body"]["Success"] = Authed
@@ -213,7 +379,9 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 
 		as.service = s
 
+		s.stateMtx.Lock()
 		s.Agents = append(s.Agents, as)
+		s.stateMtx.Unlock()
 
 		logger.Info(fmt.Sprintf("%v registered a new agent %v", "["+colors.BoldWhite("SERVICE")+"]", "[Name: "+colors.Blue(as.Name)+"]"))
 
@@ -462,8 +630,9 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				return
 			}
 
-			logger.Debug(s.clients)
-			for _, c := range s.clients {
+		clients := s.stateClients()
+		logger.Debug(clients)
+		for _, c := range clients {
 
 				c.RespMtx.Lock()
 				channel, ok := c.Responses[RandID]
@@ -902,7 +1071,7 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 }
 
 func (s *Service) AgentExist(name string) bool {
-	for _, a := range s.Agents {
+	for _, a := range s.AgentsSnapshot() {
 		if a.Name == name {
 			return true
 		}
@@ -911,11 +1080,28 @@ func (s *Service) AgentExist(name string) bool {
 	return false
 }
 
+// stateClients returns a copy of the connected service clients.
+func (s *Service) stateClients() []*ClientService {
+	s.stateMtx.RLock()
+	defer s.stateMtx.RUnlock()
+
+	var out = make([]*ClientService, len(s.clients))
+	copy(out, s.clients)
+	return out
+}
+
 func (s *Service) ClientClose(client *ClientService) {
 
 	if client == nil {
 		return
 	}
+
+	// the whole removal runs under the state lock: it splices all three
+	// slices while other service goroutines may be registering or closing.
+	// the event broadcast is deferred until after the unlock — the handlers
+	// it wakes may take the same lock and would deadlock against us.
+	var deadAgents []*agent.Agent
+	s.stateMtx.Lock()
 
 	for i := range s.clients {
 		if s.clients[i] == client {
@@ -961,9 +1147,7 @@ func (s *Service) ClientClose(client *ClientService) {
 			// operators would keep seeing dead sessions
 			for _, nameID := range ownedNameIDs {
 				if removedAgent := s.Data.ServerAgents.Remove(nameID); removedAgent != nil {
-					pk := events.Demons.MarkAs(removedAgent.NameID, "Dead")
-					s.Teamserver.EventAppend(pk)
-					s.Teamserver.EventBroadcast("", pk)
+					deadAgents = append(deadAgents, removedAgent)
 				}
 			}
 
@@ -980,13 +1164,21 @@ func (s *Service) ClientClose(client *ClientService) {
 		}
 	}
 
+	s.stateMtx.Unlock()
+
+	for _, removedAgent := range deadAgents {
+		pk := events.Demons.MarkAs(removedAgent.NameID, "Dead")
+		s.Teamserver.EventAppend(pk)
+		s.Teamserver.EventBroadcast("", pk)
+	}
+
 }
 
 func (s *Service) ListenerExist(Name string) bool {
-	for i := range s.Listeners {
+	for _, listener := range s.ListenersSnapshot() {
 		// check if the listener name is equal to the name we specified.
 		// if yes then return that we found one with the exact same name.
-		if s.Listeners[i].Name == Name {
+		if listener.Name == Name {
 			return true
 		}
 	}
@@ -997,7 +1189,9 @@ func (s *Service) ListenerExist(Name string) bool {
 func (s *Service) ListenerAdd(listener *ListenerService) {
 	logger.Info(fmt.Sprintf("%v registered a new listener %v %v", "["+colors.BoldWhite("SERVICE")+"]", "[Name: "+colors.Blue(listener.Name)+"]", "[Agent: "+colors.Blue(listener.Agent)+"]"))
 	if listener != nil {
+		s.stateMtx.Lock()
 		s.Listeners = append(s.Listeners, listener)
+		s.stateMtx.Unlock()
 
 		pk := events.Service.ListenerRegister(listener.Json())
 		s.Teamserver.EventAppend(pk)

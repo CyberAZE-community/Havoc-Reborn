@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"sync/atomic"
 
 	"Havoc/pkg/agent"
 
@@ -77,7 +78,9 @@ type (
 
 		Teamserver agent.TeamServer
 
-		Active bool
+		// set/cleared from the serve goroutine, read from listener
+		// management goroutines: must be accessed atomically
+		Active atomic.Bool
 	}
 
 	SMB struct {

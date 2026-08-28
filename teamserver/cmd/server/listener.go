@@ -64,6 +64,12 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 
 		HTTPConfig.Start()
 
+		// a listener that failed its startup validation (bad config, failed
+		// cert generation) is never actually serving: don't register it
+		if ! HTTPConfig.Active.Load() {
+			return errors.New("failed to start http listener: " + config.Name)
+		}
+
 		ListenerConfig = HTTPConfig
 		ListenerName = config.Name
 
@@ -223,7 +229,7 @@ func (t *Teamserver) ListenerEdit(Type int, Config any) {
 				t.Listeners[i].Config.(*handlers.HTTP).Config.Headers = Config.(handlers.HTTPConfig).Headers
 				t.Listeners[i].Config.(*handlers.HTTP).Config.Uris = Config.(handlers.HTTPConfig).Uris
 				t.Listeners[i].Config.(*handlers.HTTP).Config.Proxy = Config.(handlers.HTTPConfig).Proxy
-				t.Listeners[i].Config.(*handlers.HTTP).Config.BehindRedir = t.Profile.Config.Demon.TrustXForwardedFor
+				t.Listeners[i].Config.(*handlers.HTTP).Config.BehindRedir = t.Profile.Config.Demon != nil && t.Profile.Config.Demon.TrustXForwardedFor
 			}
 
 		}
@@ -272,7 +278,7 @@ func (t *Teamserver) ListenerAdd(FromUser string, Type int, Config any) packager
 		Info["Proxy Password"] = Config.(*handlers.HTTP).Config.Proxy.Password
 
 		Info["Secure"] = Config.(*handlers.HTTP).Config.Secure
-		Info["Status"] = Config.(*handlers.HTTP).Active
+		Info["Status"] = Config.(*handlers.HTTP).Active.Load()
 
 		Info["Response Headers"] = strings.Join(Config.(*handlers.HTTP).Config.Response.Headers, "\r\n")
 
@@ -281,7 +287,7 @@ func (t *Teamserver) ListenerAdd(FromUser string, Type int, Config any) packager
 			Info["Secure"] = "true"
 		}
 
-		if Config.(*handlers.HTTP).Active {
+		if Config.(*handlers.HTTP).Active.Load() {
 			Info["Status"] = "Online"
 		} else {
 			Info["Status"] = "Offline"

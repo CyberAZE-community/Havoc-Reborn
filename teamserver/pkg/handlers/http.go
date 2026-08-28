@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"context"
 	_ "embed"
@@ -251,7 +252,7 @@ func (h *HTTP) Start() {
 
 	h.GinEngine.POST("/*endpoint", h.request)
 	h.GinEngine.GET("/*endpoint", h.fake404)
-	h.Active = true
+	h.Active.Store(true)
 
 	if h.Config.Secure {
 		// TODO: only generate certs if h.Config.Cert is empty
@@ -281,16 +282,17 @@ func (h *HTTP) Start() {
 				err := h.Server.ListenAndServeTLS(CertPath, KeyPath)
 				if err != nil {
 					if err == http.ErrServerClosed {
-						h.Active = false
+						h.Active.Store(false)
 					} else {
 						logger.Error("Couldn't start HTTPs handler: " + err.Error())
-						h.Active = false
+						h.Active.Store(false)
 						h.Teamserver.EventListenerError(h.Config.Name, err)
 					}
 				}
 			}()
 		} else {
 			logger.Error("Failed to generate server tls certifications")
+			h.Active.Store(false)
 		}
 	} else {
 		logger.Info("Started \"" + colors.Green(h.Config.Name) + "\" listener: " + colors.BlueUnderline("http://"+common.GetInterfaceIpv4Addr(h.Config.HostBind)+":"+h.Config.PortBind))
@@ -308,7 +310,7 @@ func (h *HTTP) Start() {
 			err := h.Server.ListenAndServe()
 			if err != nil {
 				logger.Error("Couldn't start HTTP handler: " + err.Error())
-				h.Active = false
+				h.Active.Store(false)
 				h.Teamserver.EventListenerError(h.Config.Name, err)
 			}
 		}()
@@ -316,6 +318,9 @@ func (h *HTTP) Start() {
 }
 
 func (h *HTTP) Stop() error {
+	if h.Server == nil {
+		return errors.New("http listener is not running")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := h.Server.Shutdown(ctx); err != nil {

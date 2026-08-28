@@ -7,7 +7,7 @@ import (
 )
 
 func (t *Teamserver) ServiceAgent(MagicValue int) agent.ServiceAgentInterface {
-	for _, agentService := range t.Service.Agents {
+	for _, agentService := range t.Service.AgentsSnapshot() {
 		if agentService.MagicValue == fmt.Sprintf("0x%x", MagicValue) {
 			return agentService
 		}
@@ -18,7 +18,14 @@ func (t *Teamserver) ServiceAgent(MagicValue int) agent.ServiceAgentInterface {
 }
 
 func (t *Teamserver) ServiceAgentExist(MagicValue int) bool {
-	for _, agentService := range t.Service.Agents {
+	// t.Service is only initialized when the profile defines a Service
+	// block; without this check any non-Demon magic value in a request
+	// panics here
+	if t.Service == nil {
+		return false
+	}
+
+	for _, agentService := range t.Service.AgentsSnapshot() {
 		if agentService.MagicValue == fmt.Sprintf("0x%x", MagicValue) {
 			return true
 		}

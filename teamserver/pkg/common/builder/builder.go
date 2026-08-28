@@ -646,7 +646,10 @@ func (b *Builder) PatchConfig() ([]byte, error) {
 	DemonConfig.AddInt(ConfigSleep)
 	DemonConfig.AddInt(ConfigJitter)
 
-	if Injection := b.config.Config["Injection"].(map[string]any); len(Injection) > 0 {
+	// the config comes from the operator as raw json: the "Injection" key can
+	// be missing or have the wrong type entirely, so never assert blindly
+	Injection, InjectionOk := b.config.Config["Injection"].(map[string]any)
+	if InjectionOk && len(Injection) > 0 {
 
 		if val, ok := Injection["Alloc"].(string); ok && len(val) > 0 {
 			switch val {

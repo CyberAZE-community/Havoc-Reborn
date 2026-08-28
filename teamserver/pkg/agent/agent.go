@@ -770,10 +770,67 @@ func (a *Agent) GetQueuedJobs() []Job {
 }
 
 func (a *Agent) UpdateLastCallback(Teamserver TeamServer) {
+	// the write races with operator/event goroutines reading LastCallIn
+	// through ToMap; take the per-agent lock just for the write and call
+	// into the teamserver outside it (those paths take the lock again)
+	a.m.Lock()
 	a.Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
+	a.m.Unlock()
+
 	Teamserver.AgentUpdate(a)
 
 	Teamserver.AgentLastTimeCalled(a.NameID, a.Info.LastCallIn, a.Info.SleepDelay, a.Info.SleepJitter, a.Info.KillDate, a.Info.WorkingHours)
+}
+
+// PivotLinkAdd appends Link to the agent's pivot links under a.m so the
+// mutation can't race another goroutine iterating the slice.
+func (a *Agent) PivotLinkAdd(Link *Agent) {
+	a.m.Lock()
+	a.Pivots.Links = append(a.Pivots.Links, Link)
+	a.m.Unlock()
+}
+
+// PivotLinkRemove splices out the first pivot link whose NameID matches.
+func (a *Agent) PivotLinkRemove(NameID string) {
+	a.m.Lock()
+	for i := range a.Pivots.Links {
+		if a.Pivots.Links[i].NameID == NameID {
+			a.Pivots.Links = append(a.Pivots.Links[:i], a.Pivots.Links[i+1:]...)
+			break
+		}
+	}
+	a.m.Unlock()
+}
+
+// PivotLinksClear drops all pivot links under a.m.
+func (a *Agent) PivotLinksClear() {
+	a.m.Lock()
+	a.Pivots.Links = nil
+	a.m.Unlock()
+}
+
+// PivotsParent returns the pivot parent under a.m.
+func (a *Agent) PivotsParent() *Agent {
+	a.m.Lock()
+	parent := a.Pivots.Parent
+	a.m.Unlock()
+	return parent
+}
+
+// PivotsSnapshotLinks returns a copy of the pivot links under a.m, safe to
+// iterate while other goroutines mutate the slice.
+func (a *Agent) PivotsSnapshotLinks() []*Agent {
+	a.m.Lock()
+	links := append([]*Agent(nil), a.Pivots.Links...)
+	a.m.Unlock()
+	return links
+}
+
+// PivotParentSet reparents the agent under a.m.
+func (a *Agent) PivotParentSet(parent *Agent) {
+	a.m.Lock()
+	a.Pivots.Parent = parent
+	a.m.Unlock()
 }
 
 func (a *Agent) PivotAddJob(job Job) {
@@ -1297,6 +1354,12 @@ func (a *Agent) ToMap() map[string]interface{} {
 	// while marshalling and never mutated through the returned map).
 	a.m.Lock()
 	ParentAgent = a.Pivots.Parent
+	PivotLinkIDs := make([]string, 0, len(a.Pivots.Links))
+	for _, link := range a.Pivots.Links {
+		if link != nil {
+			PivotLinkIDs = append(PivotLinkIDs, link.NameID)
+		}
+	}
 	agentCopy := Agent{
 		NameID:          a.NameID,
 		JobQueue:        append([]Job(nil), a.JobQueue...),
@@ -1306,7 +1369,7 @@ func (a *Agent) ToMap() map[string]interface{} {
 		Reason:          a.Reason,
 		BofCallbacks:    a.BofCallbacks,
 		Info:            a.Info,
-		Pivots:          Pivots{Links: a.Pivots.Links},
+		Pivots:          Pivots{},
 		Downloads:       append([]*Download(nil), a.Downloads...),
 		PortFwds:        a.PortFwds,
 		SocksCli:        a.SocksCli,
@@ -1331,6 +1394,10 @@ func (a *Agent) ToMap() map[string]interface{} {
 	if ParentAgent != nil {
 		Info["PivotParent"] = ParentAgent.NameID
 	}
+
+	// pivot links are exposed as NameIDs only: embedding the live *Agent
+	// pointers here handed marshal-time consumers mutable shared state
+	Info["PivotLinks"] = PivotLinkIDs
 
 	Info["MagicValue"] = MagicValue
 
