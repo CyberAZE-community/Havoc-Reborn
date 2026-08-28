@@ -30,6 +30,7 @@ void Teamserver::retranslateUi()
 
 void Teamserver::AddLoggerText( const QString& Text ) const
 {
-    TeamserverLogger->append( Text );
+    /* the logger view is an HTML document: escape operator/script supplied text */
+    TeamserverLogger->append( Text.toHtmlEscaped() );
     TeamserverLogger->verticalScrollBar()->setValue( TeamserverLogger->verticalScrollBar()->maximum() );
 }

@@ -466,7 +466,8 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                     if ( ! Error.empty() )
                     {
                         MessageBox( "Listener Error", QString( Error.c_str() ), QMessageBox::Critical );
-                        HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
+                        if ( HavocX::Teamserver.TabSession->ListenerTableWidget != nullptr )
+                            HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
                         auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
@@ -481,7 +482,8 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                 {
                     if ( ! Error.empty() )
                     {
-                        HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
+                        if ( HavocX::Teamserver.TabSession->ListenerTableWidget != nullptr )
+                            HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
                         auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
@@ -576,6 +578,12 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
 
                         PyObject* pyByteArray= PyUnicode_DecodeFSDefault(Package->Body.Info[ "PayloadArray" ].c_str());
                         PyObject* result     = PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        if ( result == NULL && PyErr_Occurred() )
+                        {
+                            spdlog::error( "Error calling gate callback" );
+                            PyErr_PrintEx(0);
+                            PyErr_Clear();
+                        }
                         Py_XDECREF( result );
                         Py_XDECREF( pyByteArray );
 
@@ -669,10 +677,11 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
             {
                 for ( auto& Callback : HavocX::Teamserver.RegisteredCallbacks )
                 {
+                    /* all python API access (including the type check) must hold the GIL */
+                    auto GilState = PyGILState_Ensure();
+
                     if ( PyCallable_Check( Callback ) )
                     {
-                        auto GilState = PyGILState_Ensure();
-
                         PyObject* arglist = Py_BuildValue( "s", Agent.Name.toStdString().c_str() );
                         PyObject* Return  = PyObject_CallFunctionObjArgs( Callback, arglist, NULL );
                         if ( Return == NULL && PyErr_Occurred() )
@@ -683,11 +692,11 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                         }
                         Py_XDECREF( Return );
                         Py_XDECREF( arglist );
-
-                        PyGILState_Release( GilState );
                     } else {
                         spdlog::error( "Callback is not callable" );
                     }
+
+                    PyGILState_Release( GilState );
                 }
             }
 
@@ -775,20 +784,30 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                                 auto it = Session.TaskIDToPythonCallbacks.find( TaskID );
                                 if ( it != Session.TaskIDToPythonCallbacks.end() ) {
                                     Callback = it->second;
+
+                                    /* all python API access (including the
+                                     * type check) must hold the GIL */
+                                    auto GilState = PyGILState_Ensure();
+
                                     if ( PyCallable_Check( Callback ) )
                                     {
-                                        auto GilState = PyGILState_Ensure();
-
                                         PyObject *arglist = Py_BuildValue( "ssOss", Session.Name.toStdString().c_str(), TaskID.toStdString().c_str(), Worked == "true" ? Py_True : Py_False, Output.toStdString().c_str(), Error.toStdString().c_str() );
                                         PyObject *result  = PyObject_CallObject( Callback, arglist );
+
+                                        if ( result == nullptr && PyErr_Occurred() )
+                                        {
+                                            PyErr_Print();
+                                            PyErr_Clear();
+                                        }
+
                                         Py_XDECREF( result );
                                         Py_XDECREF( arglist );
                                         Py_XDECREF( Callback );
-
-                                        PyGILState_Release( GilState );
                                     } else {
                                         spdlog::error( "Callback is not callable" );
                                     }
+
+                                    PyGILState_Release( GilState );
 
                                     Session.TaskIDToPythonCallbacks.erase( TaskID );
 
@@ -978,8 +997,16 @@ bool Packager::DispatchService( Util::Packager::PPackage Package )
 
         case Util::Packager::Service::ListenerRegister:
         {
-            auto listener = json::parse( Package->Body.Info[ "Listener" ].c_str() );
-            auto name     = listener[ "Name" ].get<std::string>();
+            /* the listener blob comes from the service agent: malformed
+             * JSON must not abort the dispatch loop with an exception */
+            nlohmann::json listener;
+            try {
+                listener = json::parse( Package->Body.Info[ "Listener" ].c_str() );
+            } catch ( const std::exception& e ) {
+                spdlog::error( "Service listener registration: bad JSON: {}", e.what() );
+                return false;
+            }
+            auto name     = listener.value( "Name", std::string() );
 
             HavocX::Teamserver.RegisteredListeners.push_back( listener );
 

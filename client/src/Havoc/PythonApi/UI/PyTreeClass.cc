@@ -78,10 +78,18 @@ PyTypeObject PyTreeClass_Type = {
 void TreeClass_dealloc( PPyTreeClass self )
 {
     if (self) {
+        /* title is a malloc'd char buffer (AllocMov), not a PyObject:
+         * Py_DECREF on it corrupts the heap */
         if (self->title)
-            Py_XDECREF( self->title );
-        if (self->TreeWindow && self->TreeWindow->window)
+            free( self->title );
+        /* the window may have been reparented into another widget: Qt owns
+         * and deletes it then, deleting it here too would be a double free */
+        if (self->TreeWindow && self->TreeWindow->window && self->TreeWindow->window->parent() == nullptr) {
+            /* drop the destroyed handler first: its Py_DECREF(self) would
+             * re-enter this dealloc mid-way through */
+            self->TreeWindow->window->disconnect( self->TreeWindow->window, &QObject::destroyed, nullptr, nullptr );
             delete self->TreeWindow->window;
+        }
         if (self->TreeWindow)
             free(self->TreeWindow);
         Py_TYPE( self )->tp_free( ( PyObject* ) self );
@@ -162,15 +170,43 @@ int TreeClass_init( PPyTreeClass self, PyObject *args, PyObject *kwds )
         self->TreeWindow->layout->addWidget(self->TreeWindow->tree_view);
     }
 
-    QObject::connect(self->TreeWindow->tree_view->selectionModel(), &QItemSelectionModel::selectionChanged, [self, class_callback](const QItemSelection &selected, const QItemSelection &deselected) {
+    /* borrowed reference from the args tuple: keep it alive for the view
+     * lifetime and call it under the GIL */
+    Py_INCREF( class_callback );
+    /* the lambda captures self raw: hold an owned reference so the callback
+     * can't fire after the Python object is deallocated. it is released (along
+     * with the callback reference) when the Qt window is destroyed. */
+    Py_INCREF( ( PyObject* ) self );
+    QObject::connect(self->TreeWindow->tree_view->selectionModel(), &QItemSelectionModel::selectionChanged, self->TreeWindow->window, [self, class_callback](const QItemSelection &selected, const QItemSelection &deselected) {
+        auto GilState = PyGILState_Ensure();
+
         for (const QModelIndex &index : selected.indexes()) {
             QStandardItem *selectedItem = self->TreeWindow->item_model->itemFromIndex(index);
             if (selectedItem) {
                 const char *str = selectedItem->text().toUtf8().constData();
                 PyObject* pystr = PyUnicode_DecodeFSDefault(str);
-                PyObject_CallFunctionObjArgs(class_callback, pystr, nullptr);
+                PyObject* pResult = pystr ? PyObject_CallFunctionObjArgs(class_callback, pystr, nullptr) : nullptr;
+                if ( pResult == nullptr && PyErr_Occurred() )
+                {
+                    PyErr_PrintEx( 0 );
+                    PyErr_Clear();
+                }
+                Py_XDECREF( pResult );
+                Py_XDECREF( pystr );
             }
         }
+
+        PyGILState_Release( GilState );
+    });
+    QObject::connect(self->TreeWindow->window, &QObject::destroyed, [self, class_callback](QObject*) {
+        auto GilState = PyGILState_Ensure();
+
+        Py_XDECREF( class_callback );
+        /* the window is gone: make sure dealloc doesn't touch it again */
+        self->TreeWindow->window = nullptr;
+        Py_DECREF( ( PyObject* ) self );
+
+        PyGILState_Release( GilState );
     });
 
     return 0;
@@ -197,16 +233,28 @@ PyObject* TreeClass_addRow( PPyTreeClass self, PyObject *args )
     const char *title = nullptr;
     Py_ssize_t tuple_size = PyTuple_Size(args);
 
+    if (tuple_size < 1) {
+        PyErr_SetString(PyExc_TypeError, "addRow requires at least a title string");
+        return NULL;
+    }
+
     title = (const char *)PyUnicode_AsUTF8(PyTuple_GetItem(args, 0));
     if (title == NULL) {
         PyErr_SetString(PyExc_TypeError, "First parameter must be a string");
+        return NULL;
     }
 
     QStandardItem* child = new QStandardItem(title);
     QList<QStandardItem*> child_data;
 
     for (Py_ssize_t i = 1; i < tuple_size; i++) {
-        const char* child_str = PyUnicode_AsUTF8(PyTuple_GetItem(args, i));
+        const char* child_str = (const char *)PyUnicode_AsUTF8(PyTuple_GetItem(args, i));
+        if (child_str == NULL) {
+            PyErr_SetString(PyExc_TypeError, "Row values must be strings");
+            delete child;
+            qDeleteAll(child_data);
+            return NULL;
+        }
         child_data.append(new QStandardItem(child_str));
     }
     child->appendColumn(child_data);
@@ -240,7 +288,7 @@ PyObject* TreeClass_setPanel( PPyTreeClass self, PyObject *args )
     if (self->TreeWindow->panel) {
         self->TreeWindow->panel->clear();
 
-        QString Qtext = QString(str);
+        QString Qtext = QString(str).toHtmlEscaped();
         //self->TreeWindow->panel->append(Qtext);
         self->TreeWindow->panel->setHtml(Qtext);
     } else {

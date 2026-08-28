@@ -1,5 +1,7 @@
 #include <global.hpp>
 
+#include <QTimer>
+
 #include <Havoc/Havoc.hpp>
 
 #include <UserInterface/Widgets/SessionGraph.hpp>
@@ -87,19 +89,83 @@ void GraphWidget::GraphNodeRemove( SessionItem Session )
     {
         if ( Session.Name.compare( NodeList[ i ]->Name ) == 0 )
         {
-            GraphScene->removeItem( NodeList[ i ]->Node->NodeEdge );
-            GraphScene->removeItem( NodeList[ i ]->Node );
-
-            NodeList.erase( NodeList.begin() + i );
-            MainNode->Node->removeChild( NodeList[ i ]->Node );
-
-            /* delete NodeList[ i ]->Node->NodeEdge;
-            delete NodeList[ i ]->Node;
-            delete NodeList[ i ]; */
+            GraphNodeTeardown( NodeList[ i ]->Node );
 
             return;
         }
     }
+}
+
+// fully tears a session node down: drops it from the NodeList, detaches it
+// from its parent(s), strips every edge referencing it from both endpoints
+// and the scene, and finally schedules the node and its edge objects for
+// deletion. nullptr-safe and never touches the main node.
+void GraphWidget::GraphNodeTeardown( Node* node )
+{
+    if ( node == nullptr || node == MainNode->Node )
+        return;
+
+    /* remove and delete the node's member entry: the context-menu Remove
+     * action calls this directly, and leaving it in NodeList would leave
+     * GraphNodeRemove/GraphNodeGet touching a dangling Node pointer */
+    for ( int i = 0; i < NodeList.size(); i++ )
+    {
+        if ( NodeList[ i ]->Node == node )
+        {
+            auto member = NodeList[ i ];
+
+            NodeList.erase( NodeList.begin() + i );
+            delete member;
+            break;
+        }
+    }
+
+    /* detach from the parent(s): pivot nodes live in their pivot parent's
+     * Children list, direct sessions in the main node's */
+    if ( node->Parent != nullptr && node->Parent != node )
+        node->Parent->removeChild( node );
+    MainNode->Node->removeChild( node );
+
+    /* don't leave the children with a dangling Parent pointer */
+    for ( auto child : node->Children )
+    {
+        if ( child != nullptr && child->Parent == node )
+            child->Parent = nullptr;
+    }
+    node->Children.clear();
+
+    auto edges = node->edges();
+    for ( Edge* edge : edges )
+    {
+        if ( edge == nullptr )
+            continue;
+
+        if ( edge->source != nullptr && edge->source != node )
+            edge->source->removeEdge( edge );
+        if ( edge->dest != nullptr && edge->dest != node )
+            edge->dest->removeEdge( edge );
+
+        GraphScene->removeItem( edge );
+    }
+    node->removeEdge( node->NodeEdge );
+    node->NodeEdge = nullptr;
+
+    GraphScene->removeItem( node );
+
+    /* QGraphicsItem is not a QObject, so there is no deleteLater(): defer
+     * the actual deletion to the next event loop iteration (the caller may
+     * still be executing inside the node's own context menu handler) */
+    QTimer::singleShot( 0, this, [this, node, edges]() {
+        for ( Edge* edge : edges )
+        {
+            if ( edge != nullptr )
+                delete edge;
+        }
+
+        delete node;
+    } );
+
+    layout( MainNode->Node );
 }
 
 void GraphWidget::GraphPivotNodeAdd( QString AgentID, SessionItem Session )
@@ -178,7 +244,14 @@ void GraphWidget::GraphPivotNodeReconnect( QString ParentAgentID, QString ChildA
             auto i = qgraphicsitem_cast<Edge*>( g_item );
             if ( i->dest->NodeID.compare( ChildAgentID ) == 0 )
             {
-                GraphScene->addItem( new Edge( GraphNodeGet( ParentAgentID ), i->dest, QColor( HavocNamespace::Util::ColorText::Colors::Hex::Purple ) ) );
+                GraphNode* parent = GraphNodeGet( ParentAgentID );
+                if ( parent == nullptr )
+                {
+                    spdlog::warn( "Parent AgentID {} not found for {}", ParentAgentID, ChildAgentID );
+                    return;
+                }
+
+                GraphScene->addItem( new Edge( parent, i->dest, QColor( HavocNamespace::Util::ColorText::Colors::Hex::Purple ) ) );
                 GraphScene->removeItem( i );
 
                 // TODO: somehow remove/free i (Edge*)
@@ -736,8 +809,9 @@ void Node::contextMenuEvent( QGraphicsSceneContextMenuEvent* event )
                         }
                     }
 
-                    delete NodeEdge;
-                    delete this;
+                    /* route through the graph teardown so the node, its
+                     * edges and every list referencing it are cleaned up */
+                    graph->GraphNodeTeardown( this );
                 }
                 else if ( action->text().compare( "Thread" ) == 0 || action->text().compare( "Process" ) == 0 )
                 {
@@ -907,6 +981,16 @@ void Node::addEdge( Edge* edge )
 {
     edgeList << edge;
     edge->adjust();
+}
+
+void Node::removeEdge( Edge* edge )
+{
+    if ( edge == nullptr )
+        return;
+
+    int idx = edgeList.indexOf( edge );
+    if ( idx >= 0 )
+        edgeList.removeAt( idx );
 }
 
 QVector<Edge*> Node::edges() const

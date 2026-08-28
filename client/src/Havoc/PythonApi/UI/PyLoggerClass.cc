@@ -76,8 +76,18 @@ PyTypeObject PyLoggerClass_Type = {
 
 void LoggerClass_dealloc( PPyLoggerClass self )
 {
-    Py_XDECREF( self->title );
-    delete self->LoggerWindow->window;
+    /* title is a malloc'd char buffer (AllocMov), not a PyObject:
+     * Py_DECREF on it corrupts the heap */
+    if ( self->title )
+        free( self->title );
+    /* the window may have been reparented into another widget: Qt owns and
+     * deletes it then, deleting it here too would be a double free */
+    if ( self->LoggerWindow && self->LoggerWindow->window && self->LoggerWindow->window->parent() == nullptr ) {
+        /* drop the destroyed handler first: its Py_DECREF(self) would
+         * re-enter this dealloc mid-way through */
+        self->LoggerWindow->window->disconnect( self->LoggerWindow->window, &QObject::destroyed, nullptr, nullptr );
+        delete self->LoggerWindow->window;
+    }
     free(self->LoggerWindow);
 
     Py_TYPE( self )->tp_free( ( PyObject* ) self );
@@ -108,6 +118,19 @@ int LoggerClass_init( PPyLoggerClass self, PyObject *args, PyObject *kwds )
         return -1;
     self->LoggerWindow->window = new QWidget();
     self->LoggerWindow->window->setWindowTitle(title);
+
+    /* hold an owned reference while the window lives: when Qt deletes the
+     * window (it may have been reparented into a tab widget), the handler
+     * nulls the pointer so dealloc can't touch a dangling one */
+    Py_INCREF( ( PyObject* ) self );
+    QObject::connect(self->LoggerWindow->window, &QObject::destroyed, [self](QObject*) {
+        auto GilState = PyGILState_Ensure();
+
+        self->LoggerWindow->window = nullptr;
+        Py_DECREF( ( PyObject* ) self );
+
+        PyGILState_Release( GilState );
+    });
     self->LoggerWindow->layout = new QGridLayout(self->LoggerWindow->window);
     self->LoggerWindow->layout->setContentsMargins(4, 4, 4, 4);
 
@@ -141,7 +164,9 @@ PyObject* LoggerClass_addText( PPyLoggerClass self, PyObject *args )
     {
         Py_RETURN_NONE;
     }
-    QString Qtext = QString(text);
+    // the log pane is a rich-text widget: escape so scripted text can't
+    // inject markup that spoofs log output
+    QString Qtext = QString(text).toHtmlEscaped();
     self->LoggerWindow->LogSection->append(Qtext);
     Py_RETURN_NONE;
 }

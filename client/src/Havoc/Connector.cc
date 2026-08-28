@@ -114,6 +114,10 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
             HavocX::Teamserver.TabSession->deleteLater();
             HavocX::Teamserver.TabSession = nullptr;
 
+            /* drop the session bookkeeping too: it references widgets owned
+             * by the tab we just queued for deletion */
+            HavocX::Teamserver.Sessions.clear();
+
             Page->deleteLater();
         }
 

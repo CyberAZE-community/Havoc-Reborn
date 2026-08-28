@@ -204,6 +204,12 @@ void HavocNamespace::UserInterface::HavocUi::OneSecondTick()
 
 void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util::SessionItem Session, QString Mark)
 {
+    /* the disconnect teardown nulls TabSession/Connector and they stay null
+     * until the next successful connect; called from the 1s health timer this
+     * would otherwise dereference null right after a drop */
+    if ( HavocX::Teamserver.TabSession == nullptr || HavocX::Teamserver.TabSession->SessionTableWidget == nullptr )
+        return;
+
     for ( int i = 0; i <  HavocX::Teamserver.TabSession->SessionTableWidget->SessionTableWidget->rowCount(); i++ )
     {
         auto AgentID = HavocX::Teamserver.TabSession->SessionTableWidget->SessionTableWidget->item( i, 0 )->text();
@@ -252,7 +258,8 @@ void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util:
                 }
             };
 
-            HavocX::Connector->SendPackage( Package );
+            if ( HavocX::Connector != nullptr )
+                HavocX::Connector->SendPackage( Package );
 
             delete Package;
 
@@ -264,6 +271,12 @@ void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util:
 
 void HavocNamespace::UserInterface::HavocUi::UpdateSessionsHealth()
 {
+    /* the disconnect teardown deletes the TabSession widgets while the
+     * session list survives until the next successful connect; guard the
+     * timer path or the client dies ~1s after any disconnect */
+    if ( HavocX::Teamserver.TabSession == nullptr || HavocX::Teamserver.TabSession->SessionTableWidget == nullptr )
+        return;
+
     for ( auto& session : HavocX::Teamserver.Sessions )
     {
         if ( session.Marked.compare( "Dead" ) == 0 )
@@ -619,6 +632,10 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
 
 void HavocNamespace::UserInterface::HavocUi::NewBottomTab(QWidget* TabWidget, const std::string& TitleName, const QString IconPath ) const
 {
+    /* scripts may run before a teamserver session exists */
+    if ( HavocX::Teamserver.TabSession == nullptr )
+        return;
+
     HavocX::Teamserver.TabSession->NewBottomTab( TabWidget, TitleName );
 }
 
@@ -638,7 +655,11 @@ void UserInterface::HavocUi::NewTeamserverTab(QString Name )
 
 void UserInterface::HavocUi::NewSmallTab(QWidget *TabWidget, const string &TitleName ) const
 {
+    /* scripts may run before a teamserver session exists */
     auto Teamserver = HavocX::Teamserver.TabSession;
+    if ( Teamserver == nullptr )
+        return;
+
     Teamserver->NewWidgetTab( TabWidget, TitleName );
 }
 

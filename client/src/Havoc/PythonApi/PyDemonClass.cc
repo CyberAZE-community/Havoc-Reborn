@@ -394,22 +394,27 @@ PyObject* DemonClass_CommandGetOutput( PPyDemonClass self, PyObject *args )
 // ShellcodeSpawn( QString TaskID, QString InjectionTechnique, QString TargetArch, QString Path, QString Arguments )
 PyObject* DemonClass_ShellcodeSpawn( PPyDemonClass self, PyObject *args )
 {
-    char* TaskID          = NULL;
-    char* InjectTechnique = NULL;
-    char* TargetArch      = NULL;
-    char* ShellcodePath   = NULL;
-    char* ShellcodeArgs   = NULL;
-    int   ArgSize         = 0;
-    auto  ArgsByteArray   = QByteArray();
+    char*     TaskID          = NULL;
+    char*     InjectTechnique = NULL;
+    char*     TargetArch      = NULL;
+    char*     ShellcodePath   = NULL;
+    PyObject* ShellcodeArgs   = NULL;
+    int       ArgSize         = 0;
+    auto      ArgsByteArray   = QByteArray();
 
     spdlog::debug( "Running ShellcodeSpawn from python API" );
 
     if ( ! PyArg_ParseTuple( args, "ssssO", &TaskID, &InjectTechnique, &TargetArch, &ShellcodePath, &ShellcodeArgs ) )
         return NULL;
 
+    if ( ! ShellcodeArgs || ! PyBytes_Check( ShellcodeArgs ) )
+    {
+        PyErr_SetString( PyExc_TypeError, "shellcode arguments must be bytes" );
+        return NULL;
+    }
+
     ArgSize       = PyBytes_GET_SIZE( ShellcodeArgs );
-    ShellcodeArgs = PyBytes_AS_STRING( ShellcodeArgs );
-    ArgsByteArray = QByteArray( ShellcodeArgs, ArgSize );
+    ArgsByteArray = QByteArray( PyBytes_AS_STRING( ShellcodeArgs ), ArgSize );
 
     for ( auto& Sessions : HavocX::Teamserver.Sessions )
     {
@@ -458,18 +463,23 @@ PyObject* DemonClass_DllInject( PPyDemonClass self, PyObject *args )
 // Demon.DllInject( TaskID: str, DllPath: str, DllArgs: str )
 PyObject* DemonClass_DllSpawn( PPyDemonClass self, PyObject *args )
 {
-    char* TaskID        = NULL;
-    char* DllPath       = NULL;
-    char* DllArgs       = NULL;
-    int   ArgSize       = 0;
-    auto  ArgsByteArray = QByteArray();
+    char*     TaskID        = NULL;
+    char*     DllPath       = NULL;
+    PyObject* DllArgs       = NULL;
+    int       ArgSize       = 0;
+    auto      ArgsByteArray = QByteArray();
 
     if ( ! PyArg_ParseTuple( args, "ssO", &TaskID, &DllPath, &DllArgs ) )
         return NULL;
 
+    if ( ! DllArgs || ! PyBytes_Check( DllArgs ) )
+    {
+        PyErr_SetString( PyExc_TypeError, "dll arguments must be bytes" );
+        return NULL;
+    }
+
     ArgSize       = PyBytes_GET_SIZE( DllArgs );
-    DllArgs       = PyBytes_AS_STRING( DllArgs );
-    ArgsByteArray = QByteArray( DllArgs, ArgSize );
+    ArgsByteArray = QByteArray( PyBytes_AS_STRING( DllArgs ), ArgSize );
 
     for ( auto& Sessions : HavocX::Teamserver.Sessions )
     {
@@ -505,7 +515,7 @@ PyObject* DemonClass_ProcessCreate( PPyDemonClass self, PyObject *args )
     auto      ProcArg   = QString();
 
     if ( ! PyArg_ParseTuple( args, "sssOOO", &TaskID, &App, &CmdLine, &Suspended, &Piped, &Verbose ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     if ( PyObject_IsTrue( Suspended ) )
         ProcArg += "4";
@@ -548,7 +558,7 @@ PyObject* DemonClass_ConsoleWrite( PPyDemonClass self, PyObject *args )
     char*   Message = NULL;
 
     if( ! PyArg_ParseTuple( args, "is", &Type, &Message ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     for ( auto& d : HavocX::Teamserver.Sessions )
     {
@@ -556,12 +566,12 @@ PyObject* DemonClass_ConsoleWrite( PPyDemonClass self, PyObject *args )
         {
             if ( Type == self->CONSOLE_INFO )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message ).toHtmlEscaped();
                 break;
             }
             else if ( Type == self->CONSOLE_ERROR )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message ).toHtmlEscaped();
                 break;
             }
             else if ( Type == self->CONSOLE_TASK )

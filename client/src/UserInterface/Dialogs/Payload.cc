@@ -295,7 +295,10 @@ auto Payload::ReceivedImplantAndSave( QString FileName, QByteArray ImplantArray 
 
 auto Payload::addConsoleLog( QString MsgType, QString Message ) -> void
 {
-    Message = Message.replace( "\n", "<br>" );
+    // the console is a rich-text widget: escape first, then substitute
+    // our own line breaks, so operator/build-controlled text can't inject
+    // markup
+    Message = Message.toHtmlEscaped().replace( "\n", "<br>" );
 
     if ( MsgType.compare( "Good" ) == 0 )
     {

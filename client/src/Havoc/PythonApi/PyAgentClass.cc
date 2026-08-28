@@ -122,7 +122,7 @@ PyObject* AgentClass_ConsoleWrite( PPyAgentClass self, PyObject *args )
     char*   Message = NULL;
 
     if( ! PyArg_ParseTuple( args, "is", &Type, &Message ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     for ( auto& d : HavocX::Teamserver.Sessions )
     {
@@ -130,13 +130,13 @@ PyObject* AgentClass_ConsoleWrite( PPyAgentClass self, PyObject *args )
         {
             if ( Type == self->CONSOLE_INFO )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message ).toHtmlEscaped();
 
                 break;
             }
             else if ( Type == self->CONSOLE_ERROR )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message ).toHtmlEscaped();
                 break;
             }
             else if ( Type == self->CONSOLE_TASK )
@@ -155,18 +155,23 @@ PyObject* AgentClass_ConsoleWrite( PPyAgentClass self, PyObject *args )
 
 PyObject* AgentClass_Command( PPyAgentClass self, PyObject *args )
 {
-    PCHAR TaskID     = NULL;
-    PCHAR Name       = NULL;
-    PCHAR CommandArg = NULL;
-    auto  CommandLen = 0;
-    auto  Command    = QByteArray();
+    PCHAR    TaskID        = NULL;
+    PCHAR    Name          = NULL;
+    PyObject* CommandArg   = NULL;
+    auto     CommandLen    = 0;
+    auto     Command       = QByteArray();
 
     if ( ! PyArg_ParseTuple( args, "ssO", &TaskID, &Name, &CommandArg ) )
-        Py_RETURN_NONE;
+        return NULL;
+
+    if ( ! CommandArg || ! PyBytes_Check( CommandArg ) )
+    {
+        PyErr_SetString( PyExc_TypeError, "command argument must be bytes" );
+        return NULL;
+    }
 
     CommandLen = PyBytes_GET_SIZE( CommandArg );
-    CommandArg = PyBytes_AS_STRING( CommandArg );
-    Command    = QByteArray( CommandArg, CommandLen );
+    Command    = QByteArray( PyBytes_AS_STRING( CommandArg ), CommandLen );
 
     for ( auto& d : HavocX::Teamserver.Sessions )
     {

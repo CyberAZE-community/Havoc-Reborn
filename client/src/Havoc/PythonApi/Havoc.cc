@@ -70,7 +70,7 @@ PyObject* PythonAPI::Havoc::Core::Load( PyObject *self, PyObject *args )
     int   Return   = 0;
 
     if ( ! PyArg_ParseTuple( args, "s", &FilePath ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     auto script = FileRead( FilePath );
 
@@ -146,13 +146,19 @@ PyObject* PythonAPI::Havoc::Core::GeneratePayload( PyObject *self, PyObject *arg
     char*       config = nullptr;
     const char* KeyWords[] = { "callback", "agent", "listener", "arch", "format", "config", NULL };
 
-    if ( ! PyArg_ParseTupleAndKeywords( args, kwargs, "Osssss", const_cast<char**>(KeyWords), &callbackGate, &agent, &listener, &arch, &format_string, &config) )
-        Py_RETURN_NONE;
+    if ( ! PyArg_ParseTupleAndKeywords( args, kwargs, "Osssss", const_cast<char**>(KeyWords), &callbackGate, &agent, &listener, &arch, &format_string, &config ) )
+        return NULL;
     if ( !PyCallable_Check(callbackGate) )
     {
         PyErr_SetString(PyExc_TypeError, "parameter must be callable");
         return NULL;
     }
+    /* the callable must outlive this call: without the incref the GC can
+     * free it before the teamserver answers, and the Gate dispatch would
+     * call freed memory. drop the previous gate first so re-registering
+     * doesn't leak it */
+    Py_XDECREF( HavocX::callbackGate );
+    Py_XINCREF( callbackGate );
     HavocX::callbackGate = callbackGate;
 
     auto Package = new Util::Packager::Package;
@@ -205,7 +211,7 @@ PyObject* PythonAPI::Havoc::Core::RegisterCommand( PyObject *self, PyObject *arg
     const char* format     = "Osssiss|s";
 
     if ( ! PyArg_ParseTupleAndKeywords( args, kwargs, format, const_cast<char**>(KeyWords), &Function, &Module, &Command, &Description, &Behavior, &Usage, &Example, &Agent ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     if ( Agent != nullptr )
         RCommand.Agent = Agent;
@@ -235,6 +241,11 @@ PyObject* PythonAPI::Havoc::Core::RegisterCommand( PyObject *self, PyObject *arg
         if ( ( c.Command == RCommand.Command ) && ( c.Module == RCommand.Module ) && ( c.Agent == RCommand.Agent ) )
         {
             spdlog::debug( "Command already exists: [Module: {}] [Command: {}]", RCommand.Module, RCommand.Command );
+
+            /* drop the old callback and keep the new one alive before replacing it */
+            Py_XDECREF( HavocX::Teamserver.RegisteredCommands[ i ].Function );
+            Py_XINCREF( RCommand.Function );
+
             HavocX::Teamserver.RegisteredCommands[ i ] = RCommand;
 
             Py_RETURN_NONE;
@@ -278,7 +289,7 @@ PyObject* PythonAPI::Havoc::Core::RegisterModule( PyObject *self, PyObject *args
     auto  CompleteText = QString();
 
     if( ! PyArg_ParseTuple( args, "ssssss", &Name, &Description, &Behavior, &Usage, &Example, &Options ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     Module.Name         = Name;
     Module.Description  = Description;

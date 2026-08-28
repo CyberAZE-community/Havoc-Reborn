@@ -86,10 +86,19 @@ PyTypeObject PyWidgetClass_Type = {
 void WidgetClass_dealloc( PPyWidgetClass self )
 {
     if (self) {
+        /* title is a malloc'd char buffer (AllocMov), not a PyObject:
+         * Py_DECREF on it corrupts the heap */
         if (self->title)
-            Py_XDECREF( self->title );
-        if (self->WidgetWindow && self->WidgetWindow->window)
+            free( self->title );
+        /* the window may have been reparented into the client's tab widget
+         * (setBottomTab): Qt owns and deletes it then, deleting it here too
+         * would be a double free */
+        if (self->WidgetWindow && self->WidgetWindow->window && self->WidgetWindow->window->parent() == nullptr) {
+            /* drop the destroyed handler first: its Py_DECREF(self) would
+             * re-enter this dealloc mid-way through */
+            self->WidgetWindow->window->disconnect( self->WidgetWindow->window, &QObject::destroyed, nullptr, nullptr );
             delete self->WidgetWindow->window;
+        }
         if (self->WidgetWindow)
             free(self->WidgetWindow);
         Py_TYPE( self )->tp_free( ( PyObject* ) self );
@@ -128,6 +137,19 @@ int WidgetClass_init( PPyWidgetClass self, PyObject *args, PyObject *kwds )
 
     self->WidgetWindow->window = new QWidget();
     self->WidgetWindow->window->setWindowTitle(title);
+
+    /* hold an owned reference while the window lives: when Qt deletes the
+     * window (it may have been reparented into a tab widget), the handler
+     * nulls the pointer so dealloc can't touch a dangling one */
+    Py_INCREF( ( PyObject* ) self );
+    QObject::connect(self->WidgetWindow->window, &QObject::destroyed, [self](QObject*) {
+        auto GilState = PyGILState_Ensure();
+
+        self->WidgetWindow->window = nullptr;
+        Py_DECREF( ( PyObject* ) self );
+
+        PyGILState_Release( GilState );
+    });
 
     self->WidgetWindow->root = new QWidget();
     self->WidgetWindow->layout = new QVBoxLayout(self->WidgetWindow->root);
@@ -209,8 +231,22 @@ PyObject* WidgetClass_addButton( PPyWidgetClass self, PyObject *args )
     if (style)
         button->setStyleSheet(style);
     self->WidgetWindow->layout->addWidget(button);
+    /* the callback comes from the args tuple (borrowed reference): keep it
+     * alive for the widget's lifetime, call it under the GIL and never let
+     * a pending exception leak into later C-API calls */
+    Py_INCREF( button_callback );
     QObject::connect(button, &QPushButton::clicked, self->WidgetWindow->window, [button_callback]() {
-            PyObject_CallFunctionObjArgs(button_callback, nullptr);
+            auto GilState = PyGILState_Ensure();
+
+            PyObject* pResult = PyObject_CallFunctionObjArgs( button_callback, nullptr );
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+
+            PyGILState_Release( GilState );
     });
 
     Py_RETURN_NONE;
@@ -238,8 +274,19 @@ PyObject* WidgetClass_addCheckbox( PPyWidgetClass self, PyObject *args )
     if (is_checked && PyBool_Check(is_checked) && is_checked == Py_True)
         checkbox->setChecked(true);
     self->WidgetWindow->layout->addWidget(checkbox);
+    Py_INCREF( checkbox_callback );
     QObject::connect(checkbox, &QCheckBox::clicked, self->WidgetWindow->window, [checkbox_callback]() {
-            PyObject_CallFunctionObjArgs(checkbox_callback, nullptr);
+            auto GilState = PyGILState_Ensure();
+
+            PyObject* pResult = PyObject_CallFunctionObjArgs( checkbox_callback, nullptr );
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+
+            PyGILState_Release( GilState );
     });
 
     Py_RETURN_NONE;
@@ -262,9 +309,21 @@ PyObject* WidgetClass_addCombobox( PPyWidgetClass self, PyObject *args )
         comboBox->addItem(string_obj);
     }
     self->WidgetWindow->layout->addWidget(comboBox);
+    Py_INCREF( callable_obj );
     QObject::connect(comboBox, QOverload<int>::of(&QComboBox::activated), [callable_obj](int index) {
-        PyObject* pArg = PyLong_FromLong(index);
-        PyObject_CallFunctionObjArgs(callable_obj, pArg, nullptr);
+        auto GilState = PyGILState_Ensure();
+
+        PyObject* pArg   = PyLong_FromLong(index);
+        PyObject* pResult = pArg ? PyObject_CallFunctionObjArgs(callable_obj, pArg, nullptr) : nullptr;
+        if ( pResult == nullptr && PyErr_Occurred() )
+        {
+            PyErr_PrintEx( 0 );
+            PyErr_Clear();
+        }
+        Py_XDECREF( pResult );
+        Py_XDECREF( pArg );
+
+        PyGILState_Release( GilState );
     });
     Py_RETURN_NONE;
 }
@@ -286,12 +345,24 @@ PyObject* WidgetClass_addLineedit( PPyWidgetClass self, PyObject *args )
     QLineEdit* line = new QLineEdit(self->WidgetWindow->window);
     line->setPlaceholderText(text);
     self->WidgetWindow->layout->addWidget(line);
+    Py_INCREF( line_callback );
     QObject::connect(line, &QLineEdit::editingFinished, self->WidgetWindow->window, [line, line_callback]() {
+            auto GilState = PyGILState_Ensure();
+
             QString text = line->text();
             QByteArray byteArray = text.toUtf8();
             char *charArray = byteArray.data();
             PyObject* pyString = PyUnicode_DecodeFSDefault(charArray);
-            PyObject_CallFunctionObjArgs(line_callback, pyString, nullptr);
+            PyObject* pResult = pyString ? PyObject_CallFunctionObjArgs( line_callback, pyString, nullptr ) : nullptr;
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+            Py_XDECREF( pyString );
+
+            PyGILState_Release( GilState );
     });
 
     Py_RETURN_NONE;
@@ -314,13 +385,25 @@ PyObject* WidgetClass_addCalendar( PPyWidgetClass self, PyObject *args )
     QCalendarWidget* cal = new QCalendarWidget(self->WidgetWindow->window);
     self->WidgetWindow->layout->addWidget(cal);
 
+    Py_INCREF( cal_callback );
     QObject::connect(cal, &QCalendarWidget::selectionChanged, self->WidgetWindow->window, [cal, cal_callback]() {
+            auto GilState = PyGILState_Ensure();
+
             QDate selectedDate = cal->selectedDate();
             QString text = selectedDate.toString("yyyy-MM-dd");
             QByteArray byteArray = text.toUtf8();
             char *charArray = byteArray.data();
             PyObject* pyString = PyUnicode_DecodeFSDefault(charArray);
-            PyObject_CallFunctionObjArgs(cal_callback, pyString, nullptr);
+            PyObject* pResult = pyString ? PyObject_CallFunctionObjArgs( cal_callback, pyString, nullptr ) : nullptr;
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+            Py_XDECREF( pyString );
+
+            PyGILState_Release( GilState );
     });
 
     Py_RETURN_NONE;
@@ -342,9 +425,21 @@ PyObject* WidgetClass_addDial( PPyWidgetClass self, PyObject *args )
 
     QDial* dial = new QDial(self->WidgetWindow->window);
     self->WidgetWindow->layout->addWidget(dial);
+    Py_INCREF( cal_callback );
     QObject::connect(dial, &QDial::valueChanged, self->WidgetWindow->window, [cal_callback](long value) {
+            auto GilState = PyGILState_Ensure();
+
             PyObject* pyLong = PyLong_FromLong(value);
-            PyObject_CallFunctionObjArgs(cal_callback, pyLong, nullptr);
+            PyObject* pResult = pyLong ? PyObject_CallFunctionObjArgs( cal_callback, pyLong, nullptr ) : nullptr;
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+            Py_XDECREF( pyLong );
+
+            PyGILState_Release( GilState );
     });
     Py_RETURN_NONE;
 }
@@ -371,9 +466,21 @@ PyObject* WidgetClass_addSlider( PPyWidgetClass self, PyObject *args )
         slider = new QSlider(Qt::Horizontal);
     }
     self->WidgetWindow->layout->addWidget(slider);
+    Py_INCREF( cal_callback );
     QObject::connect(slider, &QSlider::valueChanged, self->WidgetWindow->window, [cal_callback](long value) {
+            auto GilState = PyGILState_Ensure();
+
             PyObject* pyLong = PyLong_FromLong(value);
-            PyObject_CallFunctionObjArgs(cal_callback, pyLong, nullptr);
+            PyObject* pResult = pyLong ? PyObject_CallFunctionObjArgs( cal_callback, pyLong, nullptr ) : nullptr;
+            if ( pResult == nullptr && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
+            Py_XDECREF( pResult );
+            Py_XDECREF( pyLong );
+
+            PyGILState_Release( GilState );
     });
     Py_RETURN_NONE;
 }

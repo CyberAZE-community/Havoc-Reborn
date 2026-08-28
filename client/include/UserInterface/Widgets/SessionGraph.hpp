@@ -46,6 +46,7 @@ public:
     void removeChild( Node* child );
 
     void addEdge( Edge* edge );
+    void removeEdge( Edge* edge );
     QVector<Edge*> edges() const;
 
     enum { Type = UserType + 1 };
@@ -94,6 +95,7 @@ public:
 
     Node* GraphNodeAdd( HavocNamespace::Util::SessionItem Session );
     void  GraphNodeRemove( HavocNamespace::Util::SessionItem Session );
+    void  GraphNodeTeardown( Node* node );
     Node* GraphNodeGet( QString AgentID );
 
     void  GraphPivotNodeAdd( QString AgentID, HavocNamespace::Util::SessionItem Session );

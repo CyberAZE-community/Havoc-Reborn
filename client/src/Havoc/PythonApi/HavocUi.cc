@@ -73,8 +73,14 @@ PyObject* PythonAPI::HavocUI::Core::CreateTab(PyObject *self, PyObject *args)
         tupleCallback->setObjectName(QString::fromUtf8(string_obj));
         tupleCallback->setText(string_obj);
         tab->addAction(tupleCallback);
+        Py_INCREF( callable_obj );
         QMainWindow::connect( tupleCallback, &QAction::triggered, HavocX::HavocUserInterface->HavocWindow, [callable_obj]() {
-            PyObject_CallFunctionObjArgs(callable_obj, nullptr);
+            auto GilState = PyGILState_Ensure();
+
+            PyObject *pResult = PyObject_CallFunctionObjArgs( callable_obj, nullptr );
+            Py_XDECREF( pResult );
+
+            PyGILState_Release( GilState );
         });
     }
     Py_RETURN_NONE;
@@ -208,24 +214,30 @@ PyObject* PythonAPI::HavocUI::Core::ProgressDialog(PyObject *self, PyObject *arg
     QProgressDialog* dialog = new QProgressDialog(title, text, 0, max_num, HavocX::HavocUserInterface->HavocWindow);
     dialog->setAutoClose(false);
     QTimer* timer = new QTimer();
+    Py_INCREF( callable_obj );
 
     QMainWindow::connect( timer, &QTimer::timeout, HavocX::HavocUserInterface->HavocWindow, [callable_obj, dialog, timer]() {
-        PyObject *pResult = PyObject_CallFunctionObjArgs(callable_obj, nullptr);
+        auto GilState = PyGILState_Ensure();
 
-        if (pResult != NULL) {
+        PyObject *pResult = PyObject_CallFunctionObjArgs( callable_obj, nullptr );
+
+        if ( pResult != NULL ) {
             if (PyLong_Check(pResult)) {
-                long resultInt = PyLong_AsLong(pResult);
-                dialog->setValue(resultInt);
+                long resultInt = PyLong_AsLong( pResult );
+                dialog->setValue( resultInt );
                 if (resultInt < 0) {
                     dialog->close();
                     timer->stop();
                 }
             }
         } else {
-            PyErr_SetString(PyExc_TypeError, "Function needs to return an int");
+            PyErr_Print();
             dialog->close();
             timer->stop();
         }
+
+        Py_XDECREF( pResult );
+        PyGILState_Release( GilState );
     });
     QPushButton *cancelButton = dialog->findChild<QPushButton *>();
     QMainWindow::connect( cancelButton, &QPushButton::clicked, HavocX::HavocUserInterface->HavocWindow, [dialog, timer]() {

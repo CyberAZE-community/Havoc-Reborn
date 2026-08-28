@@ -67,7 +67,7 @@ void HavocSpace::Havoc::Init( int argc, char** argv )
 
     QTextCodec::setCodecForLocale( QTextCodec::codecForName( "UTF-8" ) );
     QApplication::setFont( QFont( family.c_str(), size ) );
-        QTimer::singleShot( 10, [&]() {
+        QTimer::singleShot( 10, [family, size]() {
         QApplication::setFont( QFont( family.c_str(), size ) );
     } );
 

@@ -49,7 +49,7 @@ public:
     QWidget*            root_panelStore;
     QVBoxLayout*        root_panelLayout;
     QScrollArea*        panelScroll;
-    QJsonArray*         dataStore;
+    QJsonArray*         dataStore = nullptr;
 
     QLabel*             headerLabelTitle;
     QLabel*             panelLabelDescription;

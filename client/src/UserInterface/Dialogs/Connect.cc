@@ -211,6 +211,15 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
     {
         auto ConnectionInstant = new Connector( ConnectionInfo );
 
+        /* python-registered commands/modules/callbacks and their completion
+         * entries must survive the reconnect: carry them over before the
+         * assignment wipes the struct. the PyObject* are shared, not copied,
+         * so ownership stays with the interpreter */
+        ConnectionInfo->RegisteredCommands  = HavocX::Teamserver.RegisteredCommands;
+        ConnectionInfo->RegisteredModules   = HavocX::Teamserver.RegisteredModules;
+        ConnectionInfo->RegisteredCallbacks = HavocX::Teamserver.RegisteredCallbacks;
+        ConnectionInfo->AddedCommands       = HavocX::Teamserver.AddedCommands;
+
         HavocX::Teamserver = *ConnectionInfo;
         HavocX::Connector  = ConnectionInstant;
 
@@ -390,9 +399,15 @@ void HavocNamespace::UserInterface::Dialogs::Connect::handleContextMenu( const Q
 
 void HavocNamespace::UserInterface::Dialogs::Connect::itemRemove()
 {
-    for ( int i = 0; i < listWidget->selectedItems().size(); ++i )
+    const auto selected = listWidget->selectedItems();
+
+    for ( QListWidgetItem* selectedItem : selected )
     {
-        auto item = listWidget->takeItem( listWidget->currentRow() );
+        int row = listWidget->row( selectedItem );
+        auto item = listWidget->takeItem( row );
+
+        if ( item == nullptr )
+            continue;
 
         this->dbManager->removeTeamserverInfo( item->text() );
 
