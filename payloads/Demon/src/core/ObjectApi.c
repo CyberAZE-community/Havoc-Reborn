@@ -345,7 +345,7 @@ VOID BeaconFormatAlloc( PFORMAT format, int maxsz )
     if ( format == NULL )
         return;
 
-    format->original = Instance->Win32.LocalAlloc(maxsz, 1);
+    format->original = Instance->Win32.LocalAlloc( LPTR, maxsz );
     format->buffer = format->original;
     format->length = 0;
     format->size = maxsz;

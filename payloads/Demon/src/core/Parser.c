@@ -10,7 +10,14 @@ VOID ParserNew( PPARSER parser, PBYTE Buffer, UINT32 size )
         return;
 
     parser->Original = Instance->Win32.LocalAlloc( LPTR, size );
-    
+    if ( ! parser->Original )
+    {
+        parser->Buffer = NULL;
+        parser->Length = 0;
+        parser->Size   = 0;
+        return;
+    }
+
     MemCopy( parser->Original, Buffer, size );
 
     parser->Buffer   = parser->Original;
@@ -241,4 +248,9 @@ VOID ParserDestroy( PPARSER Parser )
         Parser->Original = NULL;
         Parser->Buffer   = NULL;
     }
+
+    /* zero these so a stale destroyed parser can never look like it still
+     * holds a task to dispatch (e.g. a 0-length task after ParserDestroy) */
+    Parser->Length = 0;
+    Parser->Size   = 0;
 }

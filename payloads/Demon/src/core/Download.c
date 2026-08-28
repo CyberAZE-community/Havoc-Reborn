@@ -8,6 +8,9 @@ PDOWNLOAD_DATA DownloadAdd( HANDLE hFile, LONGLONG MaxSize )
     PDOWNLOAD_DATA Download = NULL;
 
     Download            = MmHeapAlloc( sizeof( DOWNLOAD_DATA ) );
+    if ( ! Download )
+        return NULL;
+
     Download->FileID    = RandomNumber32();
     Download->hFile     = hFile;
     Download->Size      = MaxSize;
@@ -60,7 +63,6 @@ BOOL DownloadRemove( DWORD FileID )
     BOOL           Success  = FALSE;
 
     Download = Instance->Downloads;
-    Last     = Instance->Downloads;
 
     for ( ;; )
     {
@@ -72,8 +74,14 @@ BOOL DownloadRemove( DWORD FileID )
         {
             PRINTF( "Found Download (%x)\n", FileID )
 
-            /* Remove download from the list. */
-            Last->Next = Download->Next;
+            /* Remove download from the list. the head case must promote the
+             * next entry before the free, otherwise the list keeps pointing
+             * at freed memory */
+            if ( ! Last ) {
+                Instance->Downloads = Download->Next;
+            } else {
+                Last->Next = Download->Next;
+            }
 
             DownloadFree( Download );
 
@@ -95,6 +103,7 @@ VOID DownloadPush()
 {
     PDOWNLOAD_DATA Download = NULL;
     PDOWNLOAD_DATA DownLast = NULL;
+    PDOWNLOAD_DATA Next     = NULL;
     PPACKAGE       Package  = NULL;
 
     Download = Instance->Downloads;
@@ -209,19 +218,20 @@ VOID DownloadPush()
 
         if ( Download->State == DOWNLOAD_STATE_REMOVE )
         {
+            /* read the successor before freeing the node and advance to it:
+             * keeping the old pointer here meant re-reading (and possibly
+             * re-freeing) freed memory, and dropping DownLast broke the
+             * unlinking of a second consecutive removed node */
+            Next = Download->Next;
+
             /* we are at the beginning. */
             if ( ! DownLast )
-            {
-                Instance->Downloads = Download->Next;
-                DownloadFree( Download );
-                Download = NULL;
-            }
+                Instance->Downloads = Next;
             else
-            {
-                DownLast->Next = Download->Next;
-                DownloadFree( Download );
-                DownLast = NULL;
-            }
+                DownLast->Next = Next;
+
+            DownloadFree( Download );
+            Download = Next;
         }
         else
         {
@@ -396,7 +406,7 @@ BOOL RemoveMemFile( ULONG32 ID )
     }
 
     MemFile = Instance->MemFiles;
-    Last    = Instance->MemFiles;
+    Last    = NULL;
 
     for ( ;; )
     {
@@ -405,8 +415,14 @@ BOOL RemoveMemFile( ULONG32 ID )
 
         if ( MemFile->ID == ID )
         {
-            /* Remove it from the list. */
-            Last->Next = MemFile->Next;
+            /* Remove it from the list. the head case must promote the next
+             * entry before the free, otherwise the list keeps pointing at
+             * freed memory */
+            if ( ! Last ) {
+                Instance->MemFiles = MemFile->Next;
+            } else {
+                Last->Next = MemFile->Next;
+            }
 
             MemFileFree( MemFile );
 

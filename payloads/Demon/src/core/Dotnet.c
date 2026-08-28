@@ -183,13 +183,44 @@ BOOL DotnetExecute( BUFFER Assembly, BUFFER Arguments )
     }
 
     Instance->Dotnet->MethodArgs = Instance->Win32.SafeArrayCreateVector( VT_VARIANT, 0, 1 ); //Last field -> entryPoint == 1 is needed if Main(String[] args) 0 if Main()
+    if ( ! Instance->Dotnet->MethodArgs )
+    {
+        PUTS( "SafeArrayCreateVector failed" )
+        PACKAGE_ERROR_WIN32;
 
-    ArgumentsArray = Instance->Win32.CommandLineToArgvW( Arguments.Buffer, &ArgumentsCount );
-    ArgumentsArray++;
-    ArgumentsCount--;
+        return FALSE;
+    }
+
+    ArgumentsArray = NULL;
+    ArgumentsCount = 0;
+
+    /* an empty/NULL argument buffer makes CommandLineToArgvW return NULL:
+     * don't deref/advance it, run the assembly with no arguments instead */
+    if ( Arguments.Buffer && Arguments.Length )
+    {
+        ArgumentsArray = Instance->Win32.CommandLineToArgvW( Arguments.Buffer, &ArgumentsCount );
+        if ( ! ArgumentsArray || ArgumentsCount <= 0 )
+        {
+            ArgumentsArray = NULL;
+            ArgumentsCount = 0;
+        }
+        else
+        {
+            /* argv[0] is the assembly path: skip it */
+            ArgumentsArray++;
+            ArgumentsCount--;
+        }
+    }
 
     Instance->Dotnet->vtPsa.vt     = ( VT_ARRAY | VT_BSTR );
     Instance->Dotnet->vtPsa.parray = Instance->Win32.SafeArrayCreateVector( VT_BSTR, 0, ArgumentsCount );
+    if ( ! Instance->Dotnet->vtPsa.parray )
+    {
+        PUTS( "SafeArrayCreateVector failed" )
+        PACKAGE_ERROR_WIN32;
+
+        return FALSE;
+    }
 
     for ( LONG i = 0; i < ArgumentsCount; i++ ) {
         if ( ( Result = Instance->Win32.SafeArrayPutElement( Instance->Dotnet->vtPsa.parray, &i, Instance->Win32.SysAllocString( ArgumentsArray[ i ] ) ) ) ) {
@@ -504,7 +535,9 @@ BOOL FindVersion( PVOID Assembly, DWORD length )
     assembly_c = (char*)Assembly;
     char v4[] = { 0x76,0x34,0x2E,0x30,0x2E,0x33,0x30,0x33,0x31,0x39 };
 
-    for (int i = 0; i < length; i++)
+    // stop 10 bytes before the end: the inner loop reads i+j and would
+    // otherwise run past the buffer on the last candidates
+    for (int i = 0; i + 10 <= ( int ) length; i++)
     {
         for (int j = 0; j < 10; j++)
         {

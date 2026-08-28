@@ -271,6 +271,12 @@ BOOL HttpSend(
                         RespBuffer = Instance->Win32.LocalReAlloc( RespBuffer, RespSize + BufRead, LMEM_MOVEABLE | LMEM_ZEROINIT );
                     }
 
+                    if ( ! RespBuffer ) {
+                        PUTS( "Failed to allocate response buffer" )
+                        Successful = FALSE;
+                        goto LEAVE;
+                    }
+
                     RespSize += BufRead;
 
                     MemCopy( RespBuffer + ( RespSize - BufRead ), Buffer, BufRead );

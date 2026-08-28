@@ -118,12 +118,13 @@ typedef struct _COFFEE_KEY_VALUE
  * Simply executes an object file in the current thread (blocking)
  * @param EntryName
  * @param CoffeeData
+ * @param CoffeeDataSize
  * @param ArgData
  * @param ArgSize
  * @param RequestID
  * @return
  */
-VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, PVOID ArgData, SIZE_T ArgSize, UINT32 RequestID );
+VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, SIZE_T CoffeeDataSize, PVOID ArgData, SIZE_T ArgSize, UINT32 RequestID );
 
 /*!
  * CoffeeRunner
