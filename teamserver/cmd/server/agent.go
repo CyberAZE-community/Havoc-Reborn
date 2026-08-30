@@ -2,9 +2,9 @@ package server
 
 import (
 	"Havoc/pkg/logger"
+	crand "crypto/rand"
 	"encoding/json"
-	"math/rand"
-	"time"
+	"math/big"
 	"fmt"
 	"strconv"
 
@@ -259,9 +259,13 @@ func (t *Teamserver) GetDotNetPipeTemplate() string {
 	}
 
 	if PipeTemplate == "" {
-		rand.Seed(time.Now().UnixNano())
-		index := rand.Intn(len(PipeTemplates))
-		PipeTemplate = PipeTemplates[index]
+		// crypto/rand instead of a globally-seeded math/rand: the picked
+		// template feeds SMB pipe names for every assembly task
+		if n, err := crand.Int(crand.Reader, big.NewInt(int64(len(PipeTemplates)))); err == nil {
+			PipeTemplate = PipeTemplates[n.Int64()]
+		} else {
+			PipeTemplate = PipeTemplates[0]
+		}
 	}
 
 	return PipeTemplate

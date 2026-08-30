@@ -30,7 +30,7 @@ func (teamserver) Profile(profile string) packager.Package {
 	Package.Head.Time = time.Now().Format("02/01/2006 15:04:05")
 
 	Package.Body.Info = make(map[string]interface{})
-	Package.Body.SubEvent = packager.Type.Teamserver.Log
+	Package.Body.SubEvent = packager.Type.Teamserver.Profile
 	Package.Body.Info["profile"] = profile
 
 	return Package

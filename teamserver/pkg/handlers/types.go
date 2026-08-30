@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"sync"
 	"sync/atomic"
 
 	"Havoc/pkg/agent"
@@ -81,6 +82,11 @@ type (
 		// set/cleared from the serve goroutine, read from listener
 		// management goroutines: must be accessed atomically
 		Active atomic.Bool
+
+		// guards the mutable Config fields (Headers/Uris/HostHeader/
+		// UserAgent/Response.Headers/BehindRedir) that ListenerEdit swaps
+		// while request goroutines read them (M71)
+		ConfigMutex sync.RWMutex
 	}
 
 	SMB struct {

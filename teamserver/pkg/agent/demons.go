@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
@@ -1968,10 +1969,15 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					SocksHeader       socks.SocksHeader
 					err               error
 					SocketId          int32
+
+					// single buffered reader for the whole handshake: two
+					// independent readers would drop the first one's buffered
+					// remainder (a pipelined CONNECT request) (M75)
+					SocksReader = bufio.NewReader(conn)
 				)
 
 				// parse all the methods supported by the client
-				NegotiationHeader, err = socks.SubNegotiationClient(conn)
+				NegotiationHeader, err = socks.SubNegotiationClient(SocksReader)
 				if err != nil {
 					logger.Error("Failed to read socks negotiation header: " + err.Error())
 					return
@@ -2002,7 +2008,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					return
 				}
 
-				SocksHeader, err = socks.ReadSocksHeader(conn)
+				SocksHeader, err = socks.ReadSocksHeader(SocksReader)
 				if err != nil {
 					logger.Error("Failed to read socks header: " + err.Error())
 					return
@@ -2138,6 +2144,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				err := Socks.Start()
 				if err != nil {
 					Socks.Failed = true
+					// drop the dead server from the list so `socks list`
+					// doesn't keep showing a proxy that never bound
+					a.SocksSvrMtx.Lock()
+					for i := range a.SocksSvr {
+						if a.SocksSvr[i].Server == Socks {
+							a.SocksSvr = append(a.SocksSvr[:i], a.SocksSvr[i+1:]...)
+							break
+						}
+					}
+					a.SocksSvrMtx.Unlock()
+					logger.Error("Failed to start socks proxy on port " + Param + ": " + err.Error())
 					if Message != nil {
 						*Message = map[string]string{
 							"Type":    "Error",
@@ -2571,6 +2588,15 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				WorkingHours = int32(Parser.ParseInt32())
 
 				a.Active = true
+
+				// The checkin payload's DemonID must match the identity this
+				// session already registered under; never adopt a new one.
+				if fmt.Sprintf("%08x", DemonID) != a.NameID {
+					Message["Type"] = "Error"
+					Message["Message"] = fmt.Sprintf("Checkin claims ID %08x but session is %s; rejected", DemonID, a.NameID)
+					teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
+					return
+				}
 
 				a.NameID = fmt.Sprintf("%08x", DemonID)
 				a.Info.Hostname = Hostname
@@ -3031,6 +3057,12 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 							WhatToRead = []parser.ReadType{parser.ReadBytes, parser.ReadInt32, parser.ReadInt32, parser.ReadInt64}
 						}
 						for Parser.CanIRead(WhatToRead) {
+							// one directory block per iteration: reset the
+							// per-block accumulators so entries of previous
+							// blocks don't leak into this block's payload (M81)
+							DirMap = make(map[string]any)
+							DirArr = nil
+
 							var (
 									RootDirPath   = Parser.ParseUTF16String()
 									NumFiles      = Parser.ParseInt32()
@@ -3757,6 +3789,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				Message["Message"] = "Failed to inject reflective dll: " + String
 			}
 
+			a.RequestCompleted(RequestID)
 			teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
 		} else {
 			logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_INJECT_DLL, Invalid packet", AgentID))
@@ -3787,6 +3820,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				Message["Message"] = "Failed to spawned reflective dll: " + String
 			}
 
+			a.RequestCompleted(RequestID)
 			teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
 		} else {
 			logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_SPAWNDLL, Invalid packet", AgentID))
@@ -4262,8 +4296,10 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 
 					Message["Type"] = "Error"
 					Message["Message"] = fmt.Sprintf("Win32 Error: %v [%v]", ErrorString, ErrorCode)
-					// TODO: can we expect more messages from this request?
-					//a.RequestCompleted(RequestID)
+					// complete the request here as well: otherwise every
+					// failed task pins its entry (and its payload bytes)
+					// in a.Tasks forever (M72)
+					a.RequestCompleted(RequestID)
 				} else {
 					logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_ERROR - ERROR_WIN32_LASTERROR, Invalid packet", AgentID))
 				}
@@ -5548,7 +5584,9 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 							var PivotAgent *Agent
 
 							PivotAgent = teamserver.AgentInstance(AgentHdr.AgentID)
-							if PivotAgent != nil {
+							if PivotAgent != nil && PivotAgent.PivotsParent() == a {
+								// only accept pivot traffic from the
+								// registered parent of the claimed child
 								PivotAgent.UpdateLastCallback(teamserver)
 								//logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_PIVOT - DEMON_PIVOT_SMB_COMMAND, Linked Agent: %s, Command: %d", AgentID, PivotAgent.NameID, Command))
 
@@ -5572,7 +5610,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 								}
 							} else {
 								Message["Type"] = "Error"
-								Message["Message"] = fmt.Sprintf("Can't process output for %x: Agent not found", AgentHdr.AgentID)
+								Message["Message"] = fmt.Sprintf("Can't process output for %x: Agent not found or sender is not its pivot parent", AgentHdr.AgentID)
 							}
 
 						} else {

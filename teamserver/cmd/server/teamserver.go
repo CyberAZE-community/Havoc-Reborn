@@ -234,7 +234,9 @@ func (t *Teamserver) Start() {
 	})
 
 	t.Server.Engine.POST("/:endpoint", func(context *gin.Context) {
-		var endpoint = context.Request.RequestURI[1:]
+		// use the URL path without the query string: third-party agents may
+		// append query parameters to the endpoint URL
+		var endpoint = strings.TrimPrefix(context.Request.URL.Path, "/")
 
 		// snapshot the matching handlers under RLock and run them without
 		// holding it: a handler may add or remove endpoints, and iterating
@@ -356,8 +358,11 @@ func (t *Teamserver) Start() {
 			if listener.KillDate != "" {
 				t, err := time.Parse("2006-01-02 15:04:05", listener.KillDate)
 				if err != nil {
-					logger.Error("Failed to parse the kill date: " + err.Error())
-					return
+					// a single bad listener must not abort the whole
+					// teamserver startup (M79): skip it and continue
+					// with the remaining listeners
+					logger.Error("Failed to parse the kill date for listener '" + listener.Name + "': " + err.Error())
+					continue
 				}
 				KillDate = common.EpochTimeToSystemTime(t.Unix())
 			} else {
@@ -386,8 +391,8 @@ func (t *Teamserver) Start() {
 			// Set proxy settings
 			if listener.Proxy != nil {
 				if strings.HasPrefix(listener.Proxy.Host, "http://") || strings.HasPrefix(listener.Proxy.Host, "https://") {
-					logger.Error("Proxy host should not start with scheme")
-					return
+					logger.Error("Proxy host should not start with scheme, skipping listener '" + listener.Name + "'")
+					continue
 				}
 
 				HandlerData.Proxy = handlers.ProxyConfig{
@@ -425,8 +430,10 @@ func (t *Teamserver) Start() {
 			}
 
 			if err := t.ListenerStart(handlers.LISTENER_HTTP, HandlerData); err != nil {
+				// skip the failed listener and keep starting the others
+				// instead of aborting startup (M79)
 				logger.Error("Failed to start listener from profile: " + err.Error())
-				return
+				continue
 			}
 		}
 
@@ -435,8 +442,11 @@ func (t *Teamserver) Start() {
 			if listener.KillDate != "" {
 				t, err := time.Parse("2006-01-02 15:04:05", listener.KillDate)
 				if err != nil {
-					logger.Error("Failed to parse the kill date: " + err.Error())
-					return
+					// a single bad listener must not abort the whole
+					// teamserver startup (M79): skip it and continue
+					// with the remaining listeners
+					logger.Error("Failed to parse the kill date for listener '" + listener.Name + "': " + err.Error())
+					continue
 				}
 				KillDate = common.EpochTimeToSystemTime(t.Unix())
 			} else {
@@ -452,7 +462,7 @@ func (t *Teamserver) Start() {
 
 			if err := t.ListenerStart(handlers.LISTENER_PIVOT_SMB, HandlerData); err != nil {
 				logger.Error("Failed to start listener from profile: " + err.Error())
-				return
+				continue
 			}
 		}
 
@@ -465,7 +475,7 @@ func (t *Teamserver) Start() {
 
 			if err := t.ListenerStart(handlers.LISTENER_EXTERNAL, HandlerData); err != nil {
 				logger.Error("Failed to start listener from profile: " + err.Error())
-				return
+				continue
 			}
 		}
 
@@ -536,6 +546,15 @@ func (t *Teamserver) Start() {
 				HandlerData.Secure = true
 			}
 
+			// restore KillDate/WorkingHours so payloads built after a
+			// restart still embed a valid self-termination config (M70)
+			if KillDate, ok := Data["KillDate"].(float64); ok {
+				HandlerData.KillDate = int64(KillDate)
+			}
+			if WorkingHours, ok := Data["WorkingHours"].(string); ok {
+				HandlerData.WorkingHours = WorkingHours
+			}
+
 			if !ConfigValid {
 				continue
 			}
@@ -563,8 +582,10 @@ func (t *Teamserver) Start() {
 			/* also ignore if we already have a listener running */
 			if err := t.ListenerStart(handlers.LISTENER_HTTP, HandlerData); err != nil && err.Error() != "listener already exists" {
 				logger.SetStdOut(os.Stderr)
+				// skip the failed listener and keep restoring the others
+				// instead of aborting startup (M79)
 				logger.Error("Failed to start listener from db: " + err.Error())
-				return
+				continue
 			}
 
 			break
@@ -593,8 +614,10 @@ func (t *Teamserver) Start() {
 
 			if err := t.ListenerStart(handlers.LISTENER_EXTERNAL, HandlerData); err != nil && err.Error() != "listener already exists" {
 				logger.SetStdOut(os.Stderr)
+				// skip the failed listener and keep restoring the others
+				// instead of aborting startup (M79)
 				logger.Error("Failed to start listener from db: " + err.Error())
-				return
+				continue
 			}
 
 			break
@@ -621,10 +644,20 @@ func (t *Teamserver) Start() {
 			}
 			HandlerData.PipeName = PipeName
 
+			// restore KillDate/WorkingHours (M70)
+			if KillDate, ok := Data["KillDate"].(float64); ok {
+				HandlerData.KillDate = int64(KillDate)
+			}
+			if WorkingHours, ok := Data["WorkingHours"].(string); ok {
+				HandlerData.WorkingHours = WorkingHours
+			}
+
 			if err := t.ListenerStart(handlers.LISTENER_PIVOT_SMB, HandlerData); err != nil && err.Error() != "listener already exists" {
 				logger.SetStdOut(os.Stderr)
+				// skip the failed listener and keep restoring the others
+				// instead of aborting startup (M79)
 				logger.Error("Failed to start listener from db: " + err.Error())
-				return
+				continue
 			}
 
 			break
@@ -688,12 +721,13 @@ func (t *Teamserver) handleRequest(id string) {
 				}
 				client.Mutex.Lock()
 				authenticated := client.Authenticated
+				user := client.Username
 				client.Mutex.Unlock()
 				if authenticated {
 					// only append to the event history here; the
 					// RemoveClient below broadcasts UserDisconnected
 					// for authenticated clients itself
-					pk := events.ChatLog.UserDisconnected(client.Username)
+					pk := events.ChatLog.UserDisconnected(user)
 					t.EventAppend(pk)
 				}
 			}
@@ -797,8 +831,11 @@ func (t *Teamserver) handleRequest(id string) {
 		if isExist {
 			return false
 		}
-		User, ok := pk.Body.Info["User"].(string)
-		if !ok {
+		// the authenticated identity is Head.User (validated against the
+		// profile above); Body.Info["User"] is client-controlled and must
+		// never be used to pick the session username (M69)
+		User := pk.Head.User
+		if User == "" {
 			logger.Error("Client sent a malformed authentication request (" + colors.Red(client.GlobalIP) + ")")
 			if err := client.Connection.Close(); err != nil {
 				logger.Error("Failed to close client (" + id + ") socket")
@@ -841,9 +878,9 @@ func (t *Teamserver) handleRequest(id string) {
 
 		client.Mutex.Lock()
 		client.Authenticated = true
-		client.Mutex.Unlock()
 		client.ClientID = id
 		client.Username = User
+		client.Mutex.Unlock()
 
 		return true
 	}()
@@ -902,6 +939,9 @@ func (t *Teamserver) handleRequest(id string) {
 
 		pk := client.Packager.CreatePackage(string(EventPackage))
 		pk.Head.Time = time.Now().Format("02/01/2006 15:04:05")
+		// authenticated identity is authoritative; a client must not be
+		// able to spoof another operator via Head.User (M69)
+		pk.Head.User = client.Username
 
 		t.EventAppend(pk)
 		t.DispatchEvent(pk)
@@ -1134,7 +1174,10 @@ func (t *Teamserver) SendEvent(id string, pk packager.Package) error {
 
 func (t *Teamserver) RemoveClient(ClientID string) {
 
-	value, isOk := t.Clients.Load(ClientID)
+	// LoadAndDelete makes concurrent removals (watchdog vs read-loop error
+	// path) atomic: only one caller wins, so UserDisconnected can't broadcast
+	// twice for the same client
+	value, isOk := t.Clients.LoadAndDelete(ClientID)
 
 	if isOk {
 		client := value.(*Client)
@@ -1151,8 +1194,6 @@ func (t *Teamserver) RemoveClient(ClientID string) {
 				}
 			}
 		}
-
-		t.Clients.Delete(ClientID)
 	}
 }
 

@@ -371,15 +371,24 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 			return
 		}
 
-		// check if that agent name is already registered.
-		if s.AgentExist(as.Name) {
+		as.service = s
+
+		// check-then-append must be atomic: AgentExist uses AgentsSnapshot
+		// (RLock), which cannot be taken under this Lock, so the duplicate
+		// check runs inline against the live slice while holding the lock
+		s.stateMtx.Lock()
+		exists := false
+		for _, a := range s.Agents {
+			if a.Name == as.Name {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			s.stateMtx.Unlock()
 			logger.Error(fmt.Sprintf("Service agent \"%v\"already registered ", as.Name))
 			return
 		}
-
-		as.service = s
-
-		s.stateMtx.Lock()
 		s.Agents = append(s.Agents, as)
 		s.stateMtx.Unlock()
 
@@ -630,39 +639,36 @@ func (s *Service) dispatch(response map[string]map[string]any, client *ClientSer
 				return
 			}
 
-		clients := s.stateClients()
-		logger.Debug(clients)
-		for _, c := range clients {
+		// route the response through the pending-request channel of the
+		// client this connection belongs to: scanning every service
+		// client's channels would let one client answer another client's
+		// pending request by guessing the RandID (M77)
+		client.RespMtx.Lock()
+		channel, ok := client.Responses[RandID]
+		client.RespMtx.Unlock()
 
-				c.RespMtx.Lock()
-				channel, ok := c.Responses[RandID]
-				c.RespMtx.Unlock()
+		if ok {
 
-				if ok {
+			if val, ok := response["Body"]["Response"].(string); ok {
+				var (
+					resp []byte
+					err  error
+				)
 
-					if val, ok := response["Body"]["Response"].(string); ok {
-						var (
-							resp []byte
-							err  error
-						)
+				if resp, err = base64.StdEncoding.DecodeString(val); err != nil {
+					logger.Debug("Failed to decode base64: " + err.Error())
+				}
 
-						if resp, err = base64.StdEncoding.DecodeString(val); err != nil {
-							logger.Debug("Failed to decode base64: " + err.Error())
-						}
-
-						// never block the handler if nobody is listening
-						select {
-						case channel <- resp:
-						default:
-							logger.Debug("Response channel full or nobody listening, dropping response")
-						}
-					}
-
-					break
+				// never block the handler if nobody is listening
+				select {
+				case channel <- resp:
+				default:
+					logger.Debug("Response channel full or nobody listening, dropping response")
 				}
 			}
+		}
 
-			break
+		break
 
 		case BodyAgentOutput:
 			AgentID, ok := response["Body"]["AgentID"].(string)

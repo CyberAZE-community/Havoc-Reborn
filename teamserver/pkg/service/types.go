@@ -101,7 +101,10 @@ const (
 func (c *ClientService) WriteJson(v any) error {
 	var err error
 
+	// bound each write so a stalled peer (dead NAT, half-open TCP) can't
+	// pin the client mutex and queue every subsequent writer forever (M80)
 	c.Mutex.Lock()
+	_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	err = c.Conn.WriteJSON(v)
 	c.Mutex.Unlock()
 

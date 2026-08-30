@@ -5,6 +5,7 @@ import (
 	//"encoding/hex"
 	"fmt"
 	"math/bits"
+	"strconv"
 
 	"Havoc/pkg/agent"
 	"Havoc/pkg/common/packer"
@@ -300,6 +301,14 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 
 			Agent = agent.ParseDemonRegisterRequest(Header.AgentID, Header.Data, ExternalIP)
 			if Agent == nil {
+				return Response, false
+			}
+
+			// reject registrations that adopt DemonID 0 or collide with an
+			// existing session's NameID: the pre-registration existence check
+			// above tests the header AgentID, not the embedded DemonID
+			if DemonID, convErr := strconv.ParseInt(Agent.NameID, 16, 64); convErr != nil || DemonID == 0 || Teamserver.AgentInstance(int(DemonID)) != nil {
+				logger.Debug("Rejected register request: invalid or duplicate DemonID [" + Agent.NameID + "]")
 				return Response, false
 			}
 

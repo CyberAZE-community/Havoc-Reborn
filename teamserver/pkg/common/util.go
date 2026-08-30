@@ -3,11 +3,12 @@ package common
 import (
 	"bufio"
 	"bytes"
+	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"image/png"
-	"time"
 	"io"
+	"math/big"
 	"math/rand"
 	"net"
 	"strconv"
@@ -222,7 +223,12 @@ func EpochTimeToSystemTime( EpochTime int64 ) int64 {
 }
 
 func GetRandomChar(dict string) string {
-    return string(dict[rand.Intn(len(dict))])
+    n, err := crand.Int(crand.Reader, big.NewInt(int64(len(dict))))
+    if err != nil {
+        // crypto/rand should never fail; fall back to math/rand
+        return string(dict[rand.Intn(len(dict))])
+    }
+    return string(dict[n.Int64()])
 }
 
 // generate a PipeName from a name template
@@ -233,8 +239,6 @@ func GeneratePipeName(Template string, PID int, TID int) string {
 	digits := "0123456789"
 	ascii_uppercase := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	ascii_lowercase := "abcdefghijklmnopqrstuvwxyz"
-
-	rand.Seed(time.Now().UnixNano())
 
 	// add the process PID (if specified)
 	if PID != 0 {

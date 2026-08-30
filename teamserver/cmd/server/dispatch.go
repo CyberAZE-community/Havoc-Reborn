@@ -126,10 +126,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									backups["TaskMessage"] = pk.Body.Info["TaskMessage"]
 								}
 
-								for k := range pk.Body.Info {
-									delete(pk.Body.Info, k)
-								}
-
+								// Rebind, don't mutate in place: the package copy
+								// appended before dispatch shares this map.
 								pk.Body.Info = backups
 
 								t.EventAppend(pk)
@@ -160,10 +158,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									backups["CommandID"] = pk.Body.Info["CommandID"]
 								}
 
-								for k := range pk.Body.Info {
-									delete(pk.Body.Info, k)
-								}
-
+								// Rebind, don't mutate in place: the package copy
+								// appended before dispatch shares this map.
 								pk.Body.Info = backups
 
 								t.EventAppend(pk)
@@ -238,10 +234,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 										backups["CommandID"] = pk.Body.Info["CommandID"]
 									}
 
-									for k := range pk.Body.Info {
-										delete(pk.Body.Info, k)
-									}
-
+									// Rebind, don't mutate in place: the package copy
+									// appended before dispatch shares this map.
 									pk.Body.Info = backups
 
 									t.EventAppend(pk)
@@ -287,10 +281,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 										backups["TaskMessage"] = pk.Body.Info["TaskMessage"]
 									}
 
-									for k := range pk.Body.Info {
-										delete(pk.Body.Info, k)
-									}
-
+									// Rebind, don't mutate in place: the package copy
+									// appended before dispatch shares this map.
 									pk.Body.Info = backups
 
 									t.EventAppend(pk)
@@ -303,9 +295,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 									// the agent's encryption keys to the service
 									// agent (mirrors handlers.go's scrub).
 									AgentData := Agents[i].ToMap()
-									if m, ok := AgentData.(map[string]interface{}); ok {
-										delete(m, "Encryption")
-									}
+									delete(AgentData, "Encryption")
 									a.SendTask(pk.Body.Info, AgentData)
 
 									// log agent input
@@ -340,10 +330,8 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 				backups["CommandID"] = pk.Body.Info["CommandID"]
 			}
 
-			for k := range pk.Body.Info {
-				delete(pk.Body.Info, k)
-			}
-
+			// Rebind, don't mutate in place: the package copy
+			// appended before dispatch shares this map.
 			pk.Body.Info = backups
 
 			t.EventAppend(pk)
@@ -550,7 +538,7 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 
 				SmdConfig.PipeName, found = pk.Body.Info["PipeName"].(string)
 				if !found {
-					SmdConfig.Name = ""
+					SmdConfig.PipeName = ""
 				}
 
 				if err := t.ListenerStart(handlers.LISTENER_PIVOT_SMB, SmdConfig); err != nil {
@@ -626,10 +614,25 @@ func (t *Teamserver) DispatchEvent(pk packager.Package) {
 							// try to start the listener.
 							if err = listener.Start(pk.Body.Info); err != nil {
 								t.EventListenerError(ListenerName, err)
+								// a failed listener must not be appended:
+								// dead entries would still match by name in
+								// the payload-build listener lookup
+								return
 							}
 
 							// append the listener to the teamserver listener array
 							t.ListenersMutex.Lock()
+
+							// refuse duplicate listener names: payload-build
+							// lookup matches listeners by name
+							for _, existing := range t.Listeners {
+								if existing.Name == ListenerName {
+									t.ListenersMutex.Unlock()
+									t.EventListenerError(ListenerName, errors.New("listener \""+ListenerName+"\" already exists"))
+									return
+								}
+							}
+
 							t.Listeners = append(t.Listeners, &Listener{
 								Name: ListenerName,
 								Type: handlers.LISTENER_SERVICE,

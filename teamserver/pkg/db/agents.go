@@ -70,6 +70,7 @@ func (db *DB) AgentAdd(agent *agent.Agent) error {
 		agent.Info.FirstCallIn,
 		agent.Info.LastCallIn)
 	if err != nil {
+		stmt.Close()
 		return err
 	}
 
@@ -134,6 +135,7 @@ func (db *DB) AgentUpdate(agent *agent.Agent) error {
 		agent.Info.LastCallIn,
 		int(AgentID))
 	if err != nil {
+		stmt.Close()
 		return err
 	}
 
