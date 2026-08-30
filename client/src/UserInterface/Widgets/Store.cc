@@ -74,9 +74,10 @@ void Store::setupUi( QWidget* Store)
     StoreTable->verticalHeader()->setVisible( false );
     StoreTable->setFocusPolicy( Qt::NoFocus );
 
-    /* `this` as context object: the lambda is disconnected on teardown so a
-     * late reply can't write into dangling widget state */
-    QObject::connect(reply, &QNetworkReply::finished, this, [reply, this]() {
+    /* manager (not `this`) is the context object: Store is not a QObject,
+     * and manager is parented to the dialog so the connection dies with the
+     * widget tree and a late reply can't write into dangling widget state */
+    QObject::connect(reply, &QNetworkReply::finished, manager, [reply, this]() {
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray data = reply->readAll();
             QJsonDocument jsonDoc = QJsonDocument::fromJson(data);

@@ -14,6 +14,7 @@
 #include <Util/ColorText.h>
 #include <Havoc/Packager.hpp>
 #include <Havoc/Connector.hpp>
+#include <Havoc/Havoc.hpp>
 
 #include <QFile>
 #include <QToolButton>

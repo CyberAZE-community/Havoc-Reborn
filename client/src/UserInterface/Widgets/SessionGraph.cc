@@ -254,7 +254,7 @@ void GraphWidget::GraphPivotNodeReconnect( QString ParentAgentID, QString ChildA
                 Node* parent = GraphNodeGet( ParentAgentID );
                 if ( parent == nullptr )
                 {
-                    spdlog::warn( "Parent AgentID {} not found for {}", ParentAgentID, ChildAgentID );
+                    spdlog::warn( "Parent AgentID {} not found for {}", ParentAgentID.toStdString(), ChildAgentID.toStdString() );
                     return;
                 }
 
