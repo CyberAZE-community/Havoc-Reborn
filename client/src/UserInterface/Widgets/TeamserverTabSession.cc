@@ -22,12 +22,20 @@
 #include <QKeyEvent>
 #include <QShortcut>
 
+#include <algorithm>
+
 using namespace UserInterface::Widgets;
 
 void HavocNamespace::UserInterface::Widgets::TeamserverTabSession::setupUi( QWidget* Page, QString TeamserverName )
 {
-    TeamserverName = TeamserverName;
-    PageWidget = Page;
+    this->TeamserverName = TeamserverName;
+    PageWidget           = Page;
+
+    // ScriptManager and the Store query scripts through the tab; hand them
+    // the application-wide database handle.
+    if ( HavocApplication != nullptr ) {
+        dbManager = HavocApplication->dbManager;
+    }
 
     SmallAppWidgets = new SmallAppWidgets_t;
     SmallAppWidgets->EventViewer = new UserInterface::SmallWidgets::EventViewer;
@@ -186,7 +194,9 @@ void UserInterface::Widgets::TeamserverTabSession::handleDemonContextMenu( const
         "}"
     );
 
-    auto SessionID = SessionTableWidget->SessionTableWidget->item( SessionTableWidget->SessionTableWidget->currentRow(), 0 )->text();
+    /* act on the row under the cursor, not on whatever was left-clicked
+     * last (currentRow() may be -1 or point at a different session) */
+    auto SessionID = SessionTableWidget->SessionTableWidget->itemAt( pos )->text();
     auto Agent     = Util::SessionItem{};
 
     for ( auto s : HavocX::Teamserver.Sessions )
@@ -263,7 +273,7 @@ void UserInterface::Widgets::TeamserverTabSession::handleDemonContextMenu( const
 
     SessionMenu.setStyleSheet( MenuStyle );
 
-    auto *action = SessionMenu.exec( SessionTableWidget->SessionTableWidget->horizontalHeader()->viewport()->mapToGlobal( pos ) );
+    auto *action = SessionMenu.exec( SessionTableWidget->SessionTableWidget->viewport()->mapToGlobal( pos ) );
 
     if ( action )
     {
@@ -400,16 +410,27 @@ void UserInterface::Widgets::TeamserverTabSession::handleDemonContextMenu( const
                 }
                 else if ( action->text().compare( "Remove" ) == 0 )
                 {
-                    auto SessionID = SessionTableWidget->SessionTableWidget->item( SessionTableWidget->SessionTableWidget->currentRow(), 0 )->text();
+                    SessionTableWidget->SessionTableWidget->removeRow( SessionTableWidget->SessionTableWidget->currentRow() );
+                    HavocX::Teamserver.TabSession->SessionGraphWidget->GraphNodeRemove( Session );
 
-                    for ( auto & Session : HavocX::Teamserver.Sessions )
-                    {
-                        if ( SessionID.compare( Session.Name ) == 0 )
-                        {
-                            SessionTableWidget->SessionTableWidget->removeRow( SessionTableWidget->SessionTableWidget->currentRow() );
-                            HavocX::Teamserver.TabSession->SessionGraphWidget->GraphNodeRemove( Session );
-                        }
-                    }
+                    /* drop the session from the global list so a
+                     * re-registering agent is not silently dropped by the
+                     * duplicate guards; release its python task callbacks
+                     * first — nothing will ever complete those tasks */
+                    auto GilState = PyGILState_Ensure();
+
+                    for ( auto& [TaskID, Callback] : Session.TaskIDToPythonCallbacks )
+                        Py_XDECREF( Callback );
+
+                    PyGILState_Release( GilState );
+
+                    auto& Sessions = HavocX::Teamserver.Sessions;
+
+                    Sessions.erase( std::remove_if( Sessions.begin(), Sessions.end(),
+                                                    [&]( const Util::SessionItem& s ) { return s.Name.compare( SessionID ) == 0; } ),
+                                    Sessions.end() );
+
+                    break;
                 }
                 else if ( action->text().compare( "Thread" ) == 0 || action->text().compare( "Process" ) == 0 )
                 {

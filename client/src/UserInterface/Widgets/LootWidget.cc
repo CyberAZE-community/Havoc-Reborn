@@ -282,6 +282,28 @@ void LootWidget::AddScreenshot( const QString& DemonID, const QString& Name, con
 
     LootItems.push_back( Item );
 
+    /* retain only the most recent 50 screenshots: each one keeps its full
+     * image data in memory for the client's lifetime */
+    auto ImageCount = 0;
+    for ( auto it = LootItems.rbegin(); it != LootItems.rend(); ++it )
+    {
+        if ( it->Type == LOOT_IMAGE )
+            ImageCount++;
+    }
+
+    for ( auto it = LootItems.begin(); ImageCount > 50 && it != LootItems.end(); )
+    {
+        if ( it->Type == LOOT_IMAGE )
+        {
+            it = LootItems.erase( it );
+            ImageCount--;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
     if ( ComboAgentID->currentText().compare( DemonID ) == 0 || ComboAgentID->currentText().compare( "[ All ]" ) == 0 )
         ScreenshotTableAdd( Name, Date );
 }
@@ -354,6 +376,8 @@ void LootWidget::onAgentChange( const QString& text )
     // todo: free columns items
     for ( int i = ScreenshotTable->rowCount(); i >= 0; i-- )
         ScreenshotTable->removeRow( i );
+
+    DownloadTable->setRowCount( 0 );
 
     for ( auto& item : LootItems )
     {
@@ -429,6 +453,15 @@ void LootWidget::ScreenshotTableAdd( const QString &Name, const QString &Date )
 
 void LootWidget::DownloadTableAdd( const QString &Name, const QString &Size, const QString &Date )
 {
+    /* mirror the screenshots table: don't add duplicate rows */
+    for ( int i = 0; i < DownloadTable->rowCount(); i++ )
+    {
+        if ( DownloadTable->item( i, 0 )->text().compare( Name ) == 0 )
+        {
+            return;
+        }
+    }
+
     auto item_Name = new QTableWidgetItem( Name );
     auto item_Size = new QTableWidgetItem( Size );
     auto item_Date = new QTableWidgetItem( Date );

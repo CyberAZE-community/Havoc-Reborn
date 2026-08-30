@@ -18,6 +18,8 @@
 
 #include <math.h>
 
+#include <algorithm>
+
 #include <QKeyEvent>
 #include <QRandomGenerator>
 #include <QStyle>
@@ -208,6 +210,11 @@ void GraphWidget::GraphPivotNodeAdd( QString AgentID, SessionItem Session )
     auto session  = Session.Name.toStdString();
 
     spdlog::error( "Parent AgentID {} not found for {}", agent_id, session );
+
+    /* don't leave the node behind as an orphan outside NodeList: no
+     * removal/layout pass can reach it afterwards */
+    GraphScene->removeItem( item );
+    delete item;
 }
 
 void GraphWidget::GraphPivotNodeDisconnect( QString AgentID )
@@ -244,23 +251,27 @@ void GraphWidget::GraphPivotNodeReconnect( QString ParentAgentID, QString ChildA
             auto i = qgraphicsitem_cast<Edge*>( g_item );
             if ( i->dest->NodeID.compare( ChildAgentID ) == 0 )
             {
-                GraphNode* parent = GraphNodeGet( ParentAgentID );
+                Node* parent = GraphNodeGet( ParentAgentID );
                 if ( parent == nullptr )
                 {
                     spdlog::warn( "Parent AgentID {} not found for {}", ParentAgentID, ChildAgentID );
                     return;
                 }
 
-                GraphScene->addItem( new Edge( parent, i->dest, QColor( HavocNamespace::Util::ColorText::Colors::Hex::Purple ) ) );
+                auto dest = i->dest;
+
+                GraphScene->addItem( new Edge( parent, dest, QColor( HavocNamespace::Util::ColorText::Colors::Hex::Purple ) ) );
                 GraphScene->removeItem( i );
 
-                // TODO: somehow remove/free i (Edge*)
-                // i->source = GraphNodeGet( ParentAgentID );
-                // i->dest->Disconnected = false;
-                // i->Color( QColor( HavocNamespace::Util::ColorText::Colors::Hex::Purple ) );
+                /* unregister the replaced edge from both endpoints before
+                 * freeing it, and clear the stale "disconnected" state */
+                i->source->removeEdge( i );
+                dest->removeEdge( i );
+                delete i;
 
-                // i->dest->update();
-                // i->source->update();
+                dest->Disconnected = false;
+                dest->update();
+                parent->update();
 
                 return;
             }
@@ -812,6 +823,25 @@ void Node::contextMenuEvent( QGraphicsSceneContextMenuEvent* event )
                     /* route through the graph teardown so the node, its
                      * edges and every list referencing it are cleaned up */
                     graph->GraphNodeTeardown( this );
+
+                    /* drop the session from the global list so a
+                     * re-registering agent is not silently dropped by the
+                     * duplicate guards; release its python task callbacks
+                     * first — nothing will ever complete those tasks */
+                    auto GilState = PyGILState_Ensure();
+
+                    for ( auto& [TaskID, Callback] : Session.TaskIDToPythonCallbacks )
+                        Py_XDECREF( Callback );
+
+                    PyGILState_Release( GilState );
+
+                    auto& Sessions = HavocX::Teamserver.Sessions;
+
+                    Sessions.erase( std::remove_if( Sessions.begin(), Sessions.end(),
+                                                    [&]( const Util::SessionItem& s ) { return s.Name.compare( NodeID ) == 0; } ),
+                                    Sessions.end() );
+
+                    break;
                 }
                 else if ( action->text().compare( "Thread" ) == 0 || action->text().compare( "Process" ) == 0 )
                 {

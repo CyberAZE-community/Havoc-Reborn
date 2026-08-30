@@ -35,6 +35,10 @@ private:
     QAction     *actionCopyProcessID;
     QAction     *actionSetAsParentProcess;
 
+    /* which view the context menu was opened on, so Copy PID reads the
+     * right widget */
+    bool         CopyFromTree = false;
+
 public:
     Util::SessionItem Session;
     QWidget* ProcessListWidget;

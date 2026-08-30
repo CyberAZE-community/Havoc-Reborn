@@ -192,6 +192,8 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
 
     ConnectDialog->exec();
 
+    /* heap-allocated on purpose: the Connector keeps this pointer for its
+     * whole lifetime and frees it in its destructor */
     auto ConnectionInfo = new Util::ConnectionInfo;
 
     ConnectionInfo->Name     = lineEdit_Name->text();
@@ -228,7 +230,7 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
                 spdlog::warn( "Failed to add Teamserver Info to database" );
             }
         }
-        else if ( ConnectionInstant->ErrorString == nullptr ) {
+        else if ( ConnectionInstant->ErrorString.isEmpty() ) {
             /* persist a changed "Ignore SSL errors" checkbox on the
              * existing profile */
             if ( ! this->dbManager->updateTeamserverInfo( *ConnectionInfo ) ) {
@@ -257,7 +259,13 @@ Util::ConnectionInfo HavocNamespace::UserInterface::Dialogs::Connect::StartDialo
 
     }
 
-    return *ConnectionInfo;
+    /* when no Connector was created nothing owns the heap-allocated
+     * ConnectionInfo: free it after copying the return value */
+    auto RetVal = *ConnectionInfo;
+    if ( ! this->tryConnect )
+        delete ConnectionInfo;
+
+    return RetVal;
 }
 
 void HavocNamespace::UserInterface::Dialogs::Connect::passDB(HavocNamespace::HavocSpace::DBManager* db)

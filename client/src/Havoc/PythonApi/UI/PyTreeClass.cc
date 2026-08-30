@@ -202,8 +202,19 @@ int TreeClass_init( PPyTreeClass self, PyObject *args, PyObject *kwds )
         auto GilState = PyGILState_Ensure();
 
         Py_XDECREF( class_callback );
-        /* the window is gone: make sure dealloc doesn't touch it again */
-        self->TreeWindow->window = nullptr;
+        /* the window is gone: Qt owns the whole object tree, so every member
+         * of the struct dangles — null them all so dealloc and later calls
+         * can't touch freed Qt objects */
+        self->TreeWindow->window      = nullptr;
+        self->TreeWindow->layout      = nullptr;
+        self->TreeWindow->scroll      = nullptr;
+        self->TreeWindow->root        = nullptr;
+        self->TreeWindow->root_layout = nullptr;
+        self->TreeWindow->item_model  = nullptr;
+        self->TreeWindow->root_item   = nullptr;
+        self->TreeWindow->tree_view   = nullptr;
+        self->TreeWindow->panel       = nullptr;
+        self->TreeWindow->splitter    = nullptr;
         Py_DECREF( ( PyObject* ) self );
 
         PyGILState_Release( GilState );
@@ -216,14 +227,22 @@ int TreeClass_init( PPyTreeClass self, PyObject *args, PyObject *kwds )
 
 PyObject* TreeClass_setBottomTab( PPyTreeClass self, PyObject *args )
 {
-    HavocX::HavocUserInterface->NewBottomTab( self->TreeWindow->window, self->title);
+    if ( ! HavocX::HavocUserInterface->NewBottomTab( self->TreeWindow->window, self->title) )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "no teamserver session is active, cannot add tab" );
+        return NULL;
+    }
 
     Py_RETURN_NONE;
 }
 
 PyObject* TreeClass_setSmallTab( PPyTreeClass self, PyObject *args )
 {
-    HavocX::HavocUserInterface->NewSmallTab( self->TreeWindow->window, self->title);
+    if ( ! HavocX::HavocUserInterface->NewSmallTab( self->TreeWindow->window, self->title) )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "no teamserver session is active, cannot add tab" );
+        return NULL;
+    }
 
     Py_RETURN_NONE;
 }
@@ -288,11 +307,11 @@ PyObject* TreeClass_setPanel( PPyTreeClass self, PyObject *args )
     if (self->TreeWindow->panel) {
         self->TreeWindow->panel->clear();
 
-        QString Qtext = QString(str).toHtmlEscaped();
-        //self->TreeWindow->panel->append(Qtext);
-        self->TreeWindow->panel->setHtml(Qtext);
+        /* scripts pass intentional HTML markup here; render it as-is */
+        self->TreeWindow->panel->setHtml( QString( str ) );
     } else {
         PyErr_SetString(PyExc_TypeError, "The tree panel was not activated on initialization");
+        return NULL;
     }
 
     Py_RETURN_NONE;

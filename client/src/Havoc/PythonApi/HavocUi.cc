@@ -53,7 +53,22 @@ PyObject* PythonAPI::HavocUI::Core::CreateTab(PyObject *self, PyObject *args)
         Py_RETURN_NONE;
     }
     Py_ssize_t tuple_size = PyTuple_Size(args);
-    title = (const char *)PyUnicode_AsUTF8(PyTuple_GetItem(args, 0));
+    if ( tuple_size < 1 )
+    {
+        PyErr_SetString(PyExc_TypeError, "createtab expects at least a title");
+        return NULL;
+    }
+
+    PyObject* title_item = PyTuple_GetItem(args, 0);
+    if ( title_item == NULL || !PyUnicode_Check(title_item) )
+    {
+        PyErr_SetString(PyExc_TypeError, "title must be a string");
+        return NULL;
+    }
+    title = PyUnicode_AsUTF8(title_item);
+    if ( title == NULL )
+        return NULL;
+
     auto *menubar= HavocX::HavocUserInterface->menubar;
     auto tab = menubar->addMenu(title);
     if ( !tab )
@@ -61,9 +76,17 @@ PyObject* PythonAPI::HavocUI::Core::CreateTab(PyObject *self, PyObject *args)
         Py_RETURN_NONE;
     }
     for (Py_ssize_t i = 1; i < tuple_size; i+=2) {
-        const char * string_obj = PyUnicode_AsUTF8(PyTuple_GetItem(args, i));
+        PyObject* string_item = PyTuple_GetItem(args, i);
         PyObject* callable_obj = PyTuple_GetItem(args, i + 1);
-        if ( !PyCallable_Check(callable_obj) )
+        if ( string_item == NULL || !PyUnicode_Check(string_item) )
+        {
+            PyErr_SetString(PyExc_TypeError, "menu item name must be a string");
+            return NULL;
+        }
+        const char * string_obj = PyUnicode_AsUTF8(string_item);
+        if ( string_obj == NULL )
+            return NULL;
+        if ( callable_obj == NULL || !PyCallable_Check(callable_obj) )
         {
             PyErr_SetString(PyExc_TypeError, "parameter must be callable");
             return NULL;
@@ -78,6 +101,11 @@ PyObject* PythonAPI::HavocUI::Core::CreateTab(PyObject *self, PyObject *args)
             auto GilState = PyGILState_Ensure();
 
             PyObject *pResult = PyObject_CallFunctionObjArgs( callable_obj, nullptr );
+            if ( ! pResult && PyErr_Occurred() )
+            {
+                PyErr_PrintEx( 0 );
+                PyErr_Clear();
+            }
             Py_XDECREF( pResult );
 
             PyGILState_Release( GilState );
@@ -243,6 +271,12 @@ PyObject* PythonAPI::HavocUI::Core::ProgressDialog(PyObject *self, PyObject *arg
     QMainWindow::connect( cancelButton, &QPushButton::clicked, HavocX::HavocUserInterface->HavocWindow, [dialog, timer]() {
         dialog->close();
         timer->stop();
+    });
+    /* stop the timer and clean up no matter how the dialog ends: otherwise
+     * closing it without cancel keeps invoking the python callable forever */
+    QMainWindow::connect( dialog, &QDialog::finished, dialog, [dialog, timer]( int ) {
+        timer->stop();
+        dialog->deleteLater();
     });
     timer->start(max_num);
     dialog->exec();

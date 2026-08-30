@@ -520,7 +520,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         {
                             currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Module " + "      " + i.Description;
                         }
-                        else if (i.SubCommands.empty())
+                        else if (!i.SubCommands.empty())
                         {
                             if (i.SubCommands[0].CommandString != nullptr)
                             {
@@ -885,14 +885,14 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
         }
         else if (InputCommands[0].compare( "mkdir" ) == 0)
         {
-            auto Path = JoinAtIndex( InputCommands, 1 );
-            TaskID = CONSOLE_INFO( "Tasked demon to create new directory: " + Path );
-
-            if ( InputCommands.size() < 1 )
+            if ( InputCommands.size() < 2 )
             {
                 CONSOLE_ERROR( "Not enough arguments" );
                 return false;
             }
+
+            auto Path = JoinAtIndex( InputCommands, 1 );
+            TaskID = CONSOLE_INFO( "Tasked demon to create new directory: " + Path );
 
             CommandInputList[ TaskID ] = commandline;
             SEND( Execute.FS( TaskID, "mkdir", Path ) );
@@ -1265,6 +1265,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     else
                     {
                         CONSOLE_ERROR( "Incorrect process arch specified: " + TargetArch )
+                        return false;
                     }
 
                     if ( ! QFile::exists( ShellcodeBinaryPath ) )
@@ -1300,6 +1301,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     else
                     {
                         CONSOLE_ERROR( "Incorrect process arch specified: " + TargetArch )
+                        return false;
                     }
 
                     if ( ! QFile::exists( ShellcodeBinaryPath ) )
@@ -1541,10 +1543,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             auto Path = InputCommands[ 1 ];
             auto Args = QByteArray();
 
-            if ( InputCommands.size() > 3 )
+            // NOTE: the 'go' function name is hardcoded, so the arguments
+            // start at token 2 (same as 'dotnet inline-execute' below)
+            if ( InputCommands.size() > 2 )
             {
-                // NOTE: the 'dotnet inline-execute assembly.exe (args)' command does not need to escape quotes
-                Args = JoinAtIndex( commandline.split( " " ), 3 ).toUtf8();
+                Args = JoinAtIndex( commandline.split( " " ), 2 ).toUtf8();
             }
 
             if ( ! QFile::exists( Path ) )
@@ -1822,9 +1825,15 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 auto RemotePath = QString();
 
                 if ( Content == nullptr )
+                {
+                    CONSOLE_ERROR( "Failed to read local file: " + FilePath )
                     return false;
+                }
 
-                auto FileName = FilePath.mid( FilePath.lastIndexOf("/") + 1, FilePath.size() - FilePath.lastIndexOf("/") - 1 );
+                /* accept both unix- and windows-style local paths for the
+                 * remote filename */
+                auto Sep      = qMax( FilePath.lastIndexOf( "/" ), FilePath.lastIndexOf( "\\" ) );
+                auto FileName = FilePath.mid( Sep + 1 );
 
                 // if no remote path was specified, upload the file with the same name to the current directory
                 if ( InputCommands.size() == 2 )
@@ -1888,7 +1897,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     }
                     TaskID = CONSOLE_INFO( "Tasked demon to configure sleep-mask: " + InputCommands[ 2 ] );
                 }
-                if ( InputCommands[ 1 ].compare( "implant.coffee.veh" ) == 0 )
+                else if ( InputCommands[ 1 ].compare( "implant.coffee.veh" ) == 0 )
                 {
                     if ( InputCommands.size() < 3 ) {
                         CONSOLE_ERROR( "Not enough arguments" ); return false;
@@ -1900,7 +1909,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     }
                     TaskID = CONSOLE_INFO( "Tasked demon to configure coffee VEH: " + InputCommands[ 2 ] );
                 }
-                if ( InputCommands[ 1 ].compare( "implant.coffee.threaded" ) == 0 )
+                else if ( InputCommands[ 1 ].compare( "implant.coffee.threaded" ) == 0 )
                 {
                     if ( InputCommands.size() < 3 ) {
                         CONSOLE_ERROR( "Not enough arguments" ); return false;
@@ -2573,7 +2582,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         if ( ! PyCallable_Check( ( PyObject* ) Command.Function ) )
                         {
                             Py_CLEAR( FuncArgs );
-                            PyErr_SetString( PyExc_TypeError, "a callable is required" );
+                            DemonConsole->TaskError( "a callable is required for command " + InputCommands[ 0 ] );
                             PyGILState_Release( GilState );
                             return false;
                         }
@@ -2792,6 +2801,20 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     {
                         auto Value = QString();
 
+                        /* the argument array only holds what the operator
+                         * actually typed: never index past it (the
+                         * IsFilePath branch below would read out of bounds) */
+                        if (i >= (u32)ParamArray.size())
+                        {
+                            if (!command.Params[i].IsOptional)
+                            {
+                                CONSOLE_ERROR("Required parameter not given: " + command.Params[i].Name);
+                                return false;
+                            }
+                            CommandInput.insert(command.Params[i].Name.toStdString(), std::string());
+                            continue;
+                        }
+
                         if (command.Params[i].IsFilePath)
                         {
                             auto f = FileRead(ParamArray[i]);
@@ -2853,7 +2876,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 if ( ! PyCallable_Check( ( PyObject* ) Command.Function ) )
                                 {
                                     Py_CLEAR( FuncArgs );
-                                    PyErr_SetString( PyExc_TypeError, "a callable is required" );
+                                    DemonConsole->TaskError( "a callable is required for command " + InputCommands[ 0 ] );
                                     PyGILState_Release( GilState );
                                     return false;
                                 }
@@ -2916,7 +2939,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     {
                                         PrintModuleCachedMessages();
 
-                                        DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + " " + InputCommands[ 1 ] + ". Script return is invalid" );
+                                        DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ( InputCommands.size() > 1 ? " " + InputCommands[ 1 ] : QString() ) + ". Script return is invalid" );
                                     }
                                     Py_CLEAR( Return );
                                     Py_CLEAR( FuncArgs );

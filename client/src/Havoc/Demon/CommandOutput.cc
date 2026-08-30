@@ -49,6 +49,11 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
             Py_XDECREF( HavocX::callbackMessage );
             HavocX::callbackMessage = NULL;
 
+            /* don't leave a pending exception behind: it would make the
+             * next unrelated python call fail with a SystemError */
+            if ( PyErr_Occurred() )
+                PyErr_Clear();
+
             PyGILState_Release( GilState );
         }
         this->DemonCommandInstance->DemonConsole->AppendRaw( Output.toHtmlEscaped() );

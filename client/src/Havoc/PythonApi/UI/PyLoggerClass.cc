@@ -112,6 +112,15 @@ int LoggerClass_init( PPyLoggerClass self, PyObject *args, PyObject *kwds )
 
     if ( ! PyArg_ParseTupleAndKeywords( args, kwds, "s", const_cast<char**>(kwdlist), &title ) )
         return -1;
+
+    /* re-running __init__ would allocate a second window (and destroyed
+     * handler) while leaking the first: reject it instead */
+    if ( self->LoggerWindow != NULL && self->LoggerWindow->window != nullptr )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "logger object is already initialized" );
+        return -1;
+    }
+
     AllocMov( self->title, title, strlen(title) );
     self->LoggerWindow = (PPyLoggerQWindow)malloc(sizeof(PyLoggerQWindow));
     if (self->LoggerWindow == NULL)
@@ -126,7 +135,12 @@ int LoggerClass_init( PPyLoggerClass self, PyObject *args, PyObject *kwds )
     QObject::connect(self->LoggerWindow->window, &QObject::destroyed, [self](QObject*) {
         auto GilState = PyGILState_Ensure();
 
-        self->LoggerWindow->window = nullptr;
+        /* Qt owns the whole object tree: when the window dies every member
+         * of the struct dangles, not just window — null them all so later
+         * calls can't touch freed Qt objects */
+        self->LoggerWindow->window      = nullptr;
+        self->LoggerWindow->layout      = nullptr;
+        self->LoggerWindow->LogSection  = nullptr;
         Py_DECREF( ( PyObject* ) self );
 
         PyGILState_Release( GilState );
@@ -145,14 +159,22 @@ int LoggerClass_init( PPyLoggerClass self, PyObject *args, PyObject *kwds )
 
 PyObject* LoggerClass_setBottomTab( PPyLoggerClass self, PyObject *args )
 {
-    HavocX::HavocUserInterface->NewBottomTab( self->LoggerWindow->window, self->title);
+    if ( ! HavocX::HavocUserInterface->NewBottomTab( self->LoggerWindow->window, self->title) )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "no teamserver session is active, cannot add tab" );
+        return NULL;
+    }
 
     Py_RETURN_NONE;
 }
 
 PyObject* LoggerClass_setSmallTab( PPyLoggerClass self, PyObject *args )
 {
-    HavocX::HavocUserInterface->NewSmallTab( self->LoggerWindow->window, self->title);
+    if ( ! HavocX::HavocUserInterface->NewSmallTab( self->LoggerWindow->window, self->title) )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "no teamserver session is active, cannot add tab" );
+        return NULL;
+    }
 
     Py_RETURN_NONE;
 }

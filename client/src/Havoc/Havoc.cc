@@ -60,10 +60,19 @@ void HavocSpace::Havoc::Init( int argc, char** argv )
     Config = toml::parse( Path );
     spdlog::info( "loaded config file: {}", Path );
 
-    /* TODO: handle any kind of error */
-    const auto& font   = toml::find( Config, "font" );
-    const auto  family = toml::find<std::string>( font, "family" );
-    const auto  size   = toml::find<int>( font, "size" );
+    /* a config.toml missing [font] must not abort the client with an
+     * uncaught toml exception at login */
+    auto family = std::string( "Monospace" );
+    auto size   = 9;
+
+    try {
+        const auto& font = toml::find( Config, "font" );
+
+        family = toml::find<std::string>( font, "family" );
+        size   = toml::find<int>( font, "size" );
+    } catch ( const std::exception& e ) {
+        spdlog::error( "config.toml [font] not found, using defaults: {}", e.what() );
+    }
 
     QTextCodec::setCodecForLocale( QTextCodec::codecForName( "UTF-8" ) );
     QApplication::setFont( QFont( family.c_str(), size ) );

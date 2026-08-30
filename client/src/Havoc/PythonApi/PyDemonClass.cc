@@ -137,6 +137,14 @@ int DemonClass_init( PPyDemonClass self, PyObject *args, PyObject *kwds )
     if ( ! PyArg_ParseTupleAndKeywords( args, kwds, "s", const_cast<char**>(kwdlist), &DemonID ) )
         return -1;
 
+    /* re-running __init__ on a live object would AllocMov over the already
+     * allocated fields: reject it instead of leaking */
+    if ( self->DemonID != NULL )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "demon object is already initialized" );
+        return -1;
+    }
+
     for ( int i = 0; i < NumberOfSessions; ++i )
     {
         if ( DemonSessions[ i ].Name.compare( DemonID ) == 0 )
@@ -381,8 +389,11 @@ PyObject* DemonClass_CommandGetOutput( PPyDemonClass self, PyObject *args )
             // to data received for regular commands to we hook the callback
             // to work with the next one received.
 
+            /* re-registering releases the previous one-shot callback
+             * before overwriting it */
+            Py_XDECREF( HavocX::callbackMessage );
+            Py_INCREF( Callback );
             HavocX::callbackMessage = Callback;
-            Py_XINCREF(Callback);
             Session.InteractedWidget->DemonCommands->DispatchCommand( true, TaskID, Command );
             break;
         }
@@ -517,15 +528,12 @@ PyObject* DemonClass_ProcessCreate( PPyDemonClass self, PyObject *args )
     if ( ! PyArg_ParseTuple( args, "sssOOO", &TaskID, &App, &CmdLine, &Suspended, &Piped, &Verbose ) )
         return NULL;
 
+    /* the teamserver parses the argument string as
+     * State;Verbose;Piped;ProcessApp;ProcessArg (demons.go) */
     if ( PyObject_IsTrue( Suspended ) )
         ProcArg += "4";
     else
         ProcArg += "0";
-
-    if ( ! QString( App ).isEmpty() )
-        ProcArg += ";" + QString( App );
-    else
-        ProcArg += ";";
 
     if ( PyObject_IsTrue( Verbose ) )
         ProcArg += ";TRUE";
@@ -536,6 +544,11 @@ PyObject* DemonClass_ProcessCreate( PPyDemonClass self, PyObject *args )
         ProcArg += ";TRUE";
     else
         ProcArg += ";FALSE";
+
+    if ( ! QString( App ).isEmpty() )
+        ProcArg += ";" + QString( App );
+    else
+        ProcArg += ";";
 
     ProcArg += ";" + QString( CmdLine ).toUtf8().toBase64();
 

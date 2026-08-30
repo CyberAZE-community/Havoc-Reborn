@@ -242,9 +242,11 @@ PyObject* PythonAPI::Havoc::Core::RegisterCommand( PyObject *self, PyObject *arg
         {
             spdlog::debug( "Command already exists: [Module: {}] [Command: {}]", RCommand.Module, RCommand.Command );
 
-            /* drop the old callback and keep the new one alive before replacing it */
-            Py_XDECREF( HavocX::Teamserver.RegisteredCommands[ i ].Function );
+            /* keep the new callback alive before dropping the old one: if a
+             * script re-registers the same object, XDECREF first would free
+             * it while RCommand.Function still points at it */
             Py_XINCREF( RCommand.Function );
+            Py_XDECREF( HavocX::Teamserver.RegisteredCommands[ i ].Function );
 
             HavocX::Teamserver.RegisteredCommands[ i ] = RCommand;
 

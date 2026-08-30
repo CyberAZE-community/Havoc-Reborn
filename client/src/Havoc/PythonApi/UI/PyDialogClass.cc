@@ -132,6 +132,15 @@ int DialogClass_init( PPyDialogClass self, PyObject *args, PyObject *kwds )
 
     if ( ! PyArg_ParseTupleAndKeywords( args, kwds, "s|Oii", const_cast<char**>(kwdlist), &title, &scrollable, &width, &height) )
         return -1;
+
+    /* re-running __init__ would allocate a second dialog while leaking
+     * the first: reject it instead */
+    if ( self->DialogWindow->window != nullptr )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "dialog object is already initialized" );
+        return -1;
+    }
+
     AllocMov( self->title, title, strlen(title) );
 
     self->DialogWindow->window = new QDialog(HavocX::HavocUserInterface->HavocWindow);
@@ -216,6 +225,12 @@ PyObject* DialogClass_addButton( PPyDialogClass self, PyObject *args )
     /* borrowed reference from the args tuple: keep it alive for the widget
      * lifetime and call it under the GIL */
     Py_INCREF( button_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(button, &QObject::destroyed, [button_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( button_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(button, &QPushButton::clicked, self->DialogWindow->window, [button_callback]() {
             auto GilState = PyGILState_Ensure();
 
@@ -256,6 +271,12 @@ PyObject* DialogClass_addCheckbox( PPyDialogClass self, PyObject *args )
         checkbox->setChecked(true);
     self->DialogWindow->layout->addWidget(checkbox);
     Py_INCREF( checkbox_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(checkbox, &QObject::destroyed, [checkbox_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( checkbox_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(checkbox, &QCheckBox::clicked, self->DialogWindow->window, [checkbox_callback]() {
             auto GilState = PyGILState_Ensure();
 
@@ -278,19 +299,39 @@ PyObject* DialogClass_addCombobox( PPyDialogClass self, PyObject *args )
     Py_ssize_t tuple_size = PyTuple_Size(args);
     QComboBox* comboBox = new QComboBox(self->DialogWindow->window);
 
+    if ( tuple_size < 1 )
+    {
+        PyErr_SetString(PyExc_TypeError, "addCombobox expects a callback followed by items");
+        return NULL;
+    }
+
     PyObject* callable_obj = PyTuple_GetItem(args, 0);
-    if ( !PyCallable_Check(callable_obj) )
+    if ( callable_obj == NULL || !PyCallable_Check(callable_obj) )
     {
         PyErr_SetString(PyExc_TypeError, "parameter must be callable");
         return NULL;
     }
     for (Py_ssize_t i = 1; i < tuple_size; i++) {
-        const char * string_obj = PyUnicode_AsUTF8(PyTuple_GetItem(args, i));
+        PyObject* item_obj = PyTuple_GetItem(args, i);
+        if ( item_obj == NULL || !PyUnicode_Check(item_obj) )
+        {
+            PyErr_SetString(PyExc_TypeError, "combobox items must be strings");
+            return NULL;
+        }
+        const char * string_obj = PyUnicode_AsUTF8(item_obj);
+        if ( string_obj == NULL )
+            return NULL;
 
         comboBox->addItem(string_obj);
     }
     self->DialogWindow->layout->addWidget(comboBox);
     Py_INCREF( callable_obj );
+    /* release the reference when the widget goes away */
+    QObject::connect(comboBox, &QObject::destroyed, [callable_obj]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( callable_obj );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(comboBox, QOverload<int>::of(&QComboBox::activated), [callable_obj](int index) {
         auto GilState = PyGILState_Ensure();
 
@@ -327,6 +368,12 @@ PyObject* DialogClass_addLineedit( PPyDialogClass self, PyObject *args )
     line->setPlaceholderText(text);
     self->DialogWindow->layout->addWidget(line);
     Py_INCREF( line_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(line, &QObject::destroyed, [line_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( line_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(line, &QLineEdit::editingFinished, self->DialogWindow->window, [line, line_callback]() {
             auto GilState = PyGILState_Ensure();
 
@@ -367,6 +414,12 @@ PyObject* DialogClass_addCalendar( PPyDialogClass self, PyObject *args )
     self->DialogWindow->layout->addWidget(cal);
 
     Py_INCREF( cal_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(cal, &QObject::destroyed, [cal_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( cal_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(cal, &QCalendarWidget::selectionChanged, self->DialogWindow->window, [cal, cal_callback]() {
             auto GilState = PyGILState_Ensure();
 
@@ -407,6 +460,12 @@ PyObject* DialogClass_addDial( PPyDialogClass self, PyObject *args )
     QDial* dial = new QDial(self->DialogWindow->window);
     self->DialogWindow->layout->addWidget(dial);
     Py_INCREF( cal_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(dial, &QObject::destroyed, [cal_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( cal_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(dial, &QDial::valueChanged, self->DialogWindow->window, [cal_callback](long value) {
             auto GilState = PyGILState_Ensure();
 
@@ -448,6 +507,12 @@ PyObject* DialogClass_addSlider( PPyDialogClass self, PyObject *args )
     }
     self->DialogWindow->layout->addWidget(slider);
     Py_INCREF( cal_callback );
+    /* release the reference when the widget goes away */
+    QObject::connect(slider, &QObject::destroyed, [cal_callback]( QObject* ) {
+        auto GilState = PyGILState_Ensure();
+        Py_DECREF( cal_callback );
+        PyGILState_Release( GilState );
+    });
     QObject::connect(slider, &QSlider::valueChanged, self->DialogWindow->window, [cal_callback](long value) {
             auto GilState = PyGILState_Ensure();
 

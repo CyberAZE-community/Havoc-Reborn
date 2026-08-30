@@ -71,8 +71,8 @@ public:
     void retranslateUi( QMainWindow *Havoc ) const;
     void setDBManager( HavocSpace::DBManager* dbManager );
     void NewTeamserverTab( QString Name );
-    void NewBottomTab( QWidget* TabWidget, const std::string& TitleName, const QString IconPath = "" ) const;
-    void NewSmallTab( QWidget* TabWidget, const std::string& TitleName ) const;
+    bool NewBottomTab( QWidget* TabWidget, const std::string& TitleName, const QString IconPath = "" ) const;
+    bool NewSmallTab( QWidget* TabWidget, const std::string& TitleName ) const;
     void ConnectEvents();
     void PythonPrepare();
 

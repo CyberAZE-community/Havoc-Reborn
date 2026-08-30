@@ -300,7 +300,7 @@ void HavocNamespace::UserInterface::Widgets::ProcessList::onButton_Refresh() con
 {
     for ( auto & Session : HavocX::Teamserver.Sessions )
     {
-        if ( Session.Name.compare( Session.Name ) == 0 )
+        if ( Session.Name.compare( this->Session.Name ) == 0 )
         {
             if ( Session.ProcessList )
             {
@@ -345,22 +345,44 @@ void HavocNamespace::UserInterface::Widgets::ProcessList::handleTableListMenuCon
     if ( ! ProcessTable->itemAt( pos ) )
         return;
 
+    CopyFromTree = false;
+
     ProcessListMenu->popup( ProcessTable->horizontalHeader()->viewport()->mapToGlobal( pos ) );
 }
 
 void HavocNamespace::UserInterface::Widgets::ProcessList::handleTreeListMenuContext( const QPoint &pos )
 {
-    if ( ! ProcessTable->itemAt( pos ) )
+    if ( ! ProcessTree->itemAt( pos ) )
         return;
+
+    CopyFromTree = true;
 
     ProcessListMenu->popup( ProcessTree->viewport()->mapToGlobal( pos ) );
 }
 
 void HavocNamespace::UserInterface::Widgets::ProcessList::onActionCopyPID()
 {
-    spdlog::info("PID saved to clipboard");
-    auto PID = this->ProcessTree->currentItem()->text(this->ProcessTree->currentColumn()).split(":")[0];
+    auto PID = QString();
 
+    /* read the PID from the view the menu was opened on */
+    if ( CopyFromTree )
+    {
+        auto ProcessItem = ProcessTree->currentItem();
+        if ( ProcessItem == nullptr )
+            return;
+
+        PID = ProcessItem->text( ProcessTree->currentColumn() ).split( ":" )[ 0 ];
+    }
+    else
+    {
+        auto TableItem = ProcessTable->item( ProcessTable->currentRow(), 1 );
+        if ( TableItem == nullptr )
+            return;
+
+        PID = TableItem->text();
+    }
+
+    spdlog::info("PID saved to clipboard");
     QApplication::clipboard()->setText( PID );
 }
 

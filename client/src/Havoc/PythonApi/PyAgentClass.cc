@@ -94,6 +94,14 @@ int AgentClass_init( PPyAgentClass self, PyObject *args, PyObject *kwds )
     if ( ! PyArg_ParseTuple( args, "s", &AgentID ) )
         return -1;
 
+    /* re-running __init__ on a live object would AllocMov over the already
+     * allocated fields: reject it instead of leaking */
+    if ( self->AgentID != NULL )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "agent object is already initialized" );
+        return -1;
+    }
+
     for ( auto & Agent : HavocX::Teamserver.Sessions )
     {
         if ( Agent.Name.compare( AgentID ) == 0 )

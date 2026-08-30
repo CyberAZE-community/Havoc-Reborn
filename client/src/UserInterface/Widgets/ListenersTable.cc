@@ -103,6 +103,12 @@ void HavocNamespace::UserInterface::Widgets::ListenersTable::ButtonsInit()
                 HavocX::Connector->SendPackage( &Package );
             }
         }
+
+        /* release the per-protocol pages, the inner parentless QDialog
+         * and the NewListener itself: all three were leaked before */
+        ListenerDialog->Free();
+        delete ListenerDialog->ListenerDialog;
+        delete ListenerDialog;
     } );
 
     QObject::connect( buttonEdit, &QPushButton::clicked, this, [&]()
@@ -146,6 +152,10 @@ void HavocNamespace::UserInterface::Widgets::ListenersTable::ButtonsInit()
             }
         }
 
+        /* release the per-protocol pages and the inner parentless QDialog
+         * too: only the NewListener itself was deleted before */
+        ListenerDialog->Free();
+        delete ListenerDialog->ListenerDialog;
         delete ListenerDialog;
     } );
 

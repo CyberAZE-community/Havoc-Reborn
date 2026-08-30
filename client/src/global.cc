@@ -10,7 +10,7 @@ using namespace std;
 using namespace HavocNamespace;
 using namespace HavocNamespace::HavocSpace;
 
-string HavocNamespace::Version  = "0.8.1";
+string HavocNamespace::Version  = "0.8.2";
 string HavocNamespace::CodeName = "Bites The Dust";
 
 // Global Variables in the Havoc Namespace

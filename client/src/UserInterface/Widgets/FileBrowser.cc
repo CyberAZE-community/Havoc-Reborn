@@ -144,7 +144,9 @@ void FileBrowser::setupUi( QWidget* FileBrowser )
 
     QObject::connect( TableFileBrowser, &QTableWidget::cellDoubleClicked, this, &FileBrowser::onTableDoubleClick );
     QObject::connect( TableFileBrowser, &QTableWidget::customContextMenuRequested, this, &FileBrowser::onTableContextMenu );
-    QObject::connect( FileBrowserTree, &QTreeWidget::customContextMenuRequested, this, &FileBrowser::onTableContextMenu );
+    /* the tree must not pop the table's menu: its Download/Reload actions
+     * act on the table's current row */
+    QObject::connect( FileBrowserTree, &QTreeWidget::customContextMenuRequested, this, &FileBrowser::onTreeContextMenu );
     QObject::connect( ButtonGoUpDir, &QPushButton::clicked, this, &FileBrowser::onButtonUp );
     QObject::connect( InputFileBrowserPath, &QLineEdit::returnPressed, this, &FileBrowser::onInputPath );
 
