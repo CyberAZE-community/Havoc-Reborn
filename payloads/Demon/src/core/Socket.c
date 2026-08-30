@@ -354,6 +354,12 @@ VOID SocketRead()
                     }
 
                     if ( ! Failed && ! RecvAll( Socket->Socket, PartialData.Buffer, PartialData.Length, &PartialData.Length ) ) {
+                        /* RecvAll failed: if no data was received the buffer is not
+                         * merged below and would leak, so free it here. */
+                        if ( PartialData.Buffer && PartialData.Length == 0 ) {
+                            MmHeapFree( PartialData.Buffer );
+                            PartialData.Buffer = NULL;
+                        }
                         Failed    = TRUE;
                         ErrorCode = Instance->Win32.WSAGetLastError();
                     }

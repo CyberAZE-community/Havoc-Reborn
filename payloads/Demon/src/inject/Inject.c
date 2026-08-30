@@ -317,6 +317,14 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
     ReturnValue = -1;
 
 Cleanup:
+    /* free the remote parameter buffer on every failure path so we
+     * don't leave operator data behind in the target */
+    if ( ReturnValue != 0 && MemParamsBuffer )
+    {
+        MmVirtualFree( hTargetProcess, MemParamsBuffer );
+        MemParamsBuffer = NULL;
+    }
+
     if ( ! HasRDll && FullDll )
     {
         MemSet( FullDll, 0, FullDllSize );
@@ -350,7 +358,8 @@ DWORD DllSpawnReflective( LPVOID DllLdr, DWORD DllLdrSize, LPVOID DllBuffer, DWO
         {
             PUTS( "Failed" )
             ProcessTerminate( ProcessInfo.hProcess, 0 );
-            SysNtClose( ProcessInfo.hProcess );
+            /* NOTE: ProcessCreate(Piped) registered hProcess in the jobs list
+             * which closes it on JobRemove. don't close it here as well */
             SysNtClose( ProcessInfo.hThread );
         }
     }

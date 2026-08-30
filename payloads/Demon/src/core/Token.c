@@ -875,6 +875,10 @@ VOID ProcessUserToken(
                 if ( CanTokenBeImpersonated( hToken ) )
                 {
                     // create a new token structure and store it
+                    // bound the copy to the fixed MAX_USERNAME sized field
+                    if ( StringLengthW( C_PTR( UserDomain.Buffer ) ) >= MAX_USERNAME ) {
+                        ( ( PWCHAR ) UserDomain.Buffer )[ MAX_USERNAME - 1 ] = 0;
+                    }
                     StringCopyW( NewToken.username, UserDomain.Buffer );
                     NewToken.dwProcessID         = ProcessId;
                     NewToken.localHandle         = handle;

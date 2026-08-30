@@ -54,15 +54,17 @@ VOID PackageAddInt32(
         return;
     }
 
-    Package->Buffer = Instance->Win32.LocalReAlloc(
+    /* realloc into a temp: on failure the old buffer pointer must survive */
+    LPVOID Buffer = Instance->Win32.LocalReAlloc(
             Package->Buffer,
             Package->Length + sizeof( UINT32 ),
             LMEM_MOVEABLE
     );
 
-    if ( ! Package->Buffer ) {
+    if ( ! Buffer ) {
         return;
     }
+    Package->Buffer = Buffer;
 
     Int32ToBuffer( Package->Buffer + Package->Length, Data );
 
@@ -75,15 +77,17 @@ VOID PackageAddInt64( PPACKAGE Package, UINT64 dataInt )
         return;
     }
 
-    Package->Buffer = Instance->Win32.LocalReAlloc(
+    /* realloc into a temp: on failure the old buffer pointer must survive */
+    LPVOID Buffer = Instance->Win32.LocalReAlloc(
             Package->Buffer,
             Package->Length + sizeof( UINT64 ),
             LMEM_MOVEABLE
     );
 
-    if ( ! Package->Buffer ) {
+    if ( ! Buffer ) {
         return;
     }
+    Package->Buffer = Buffer;
 
     Int64ToBuffer( Package->Buffer + Package->Length, dataInt );
 
@@ -98,15 +102,17 @@ VOID PackageAddBool(
         return;
     }
 
-    Package->Buffer = Instance->Win32.LocalReAlloc(
+    /* realloc into a temp: on failure the old buffer pointer must survive */
+    LPVOID Buffer = Instance->Win32.LocalReAlloc(
             Package->Buffer,
             Package->Length + sizeof( UINT32 ),
             LMEM_MOVEABLE
     );
 
-    if ( ! Package->Buffer ) {
+    if ( ! Buffer ) {
         return;
     }
+    Package->Buffer = Buffer;
 
     Int32ToBuffer( Package->Buffer + Package->Length, Data ? 1 : 0 );
 
@@ -123,15 +129,17 @@ VOID PackageAddPad( PPACKAGE Package, PCHAR Data, SIZE_T Size )
     if ( ! Package )
         return;
 
-    Package->Buffer = Instance->Win32.LocalReAlloc(
+    /* realloc into a temp: on failure the old buffer pointer must survive */
+    LPVOID Buffer = Instance->Win32.LocalReAlloc(
             Package->Buffer,
             Package->Length + Size,
             LMEM_MOVEABLE | LMEM_ZEROINIT
     );
 
-    if ( ! Package->Buffer ) {
+    if ( ! Buffer ) {
         return;
     }
+    Package->Buffer = Buffer;
 
     MemCopy( Package->Buffer + ( Package->Length ), Data, Size );
 
@@ -148,15 +156,17 @@ VOID PackageAddBytes( PPACKAGE Package, PBYTE Data, SIZE_T Size )
 
     if ( Size )
     {
-        Package->Buffer = Instance->Win32.LocalReAlloc(
+        /* realloc into a temp: on failure the old buffer pointer must survive */
+        LPVOID Buffer = Instance->Win32.LocalReAlloc(
                 Package->Buffer,
                 Package->Length + Size,
                 LMEM_MOVEABLE | LMEM_ZEROINIT
         );
 
-        if ( ! Package->Buffer ) {
+        if ( ! Buffer ) {
             return;
         }
+        Package->Buffer = Buffer;
 
         MemCopy( Package->Buffer + Package->Length, Data, Size );
 

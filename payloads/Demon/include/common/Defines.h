@@ -101,6 +101,7 @@
 #define H_FUNC_RTLCREATETIMER                        0x1877faec
 #define H_FUNC_RTLQUEUEWORKITEM                      0xae92028e
 #define H_FUNC_RTLREGISTERWAIT                       0x600fe691
+#define H_FUNC_RTLDEREGISTERWAIT                     0x961776da
 #define H_FUNC_RTLCAPTURECONTEXT                     0xeba8d910
 #define H_FUNC_RTLCOPYMAPPEDMEMORY                   0x5b56b302
 #define H_FUNC_RTLFILLMEMORY                         0x89ab5f57
