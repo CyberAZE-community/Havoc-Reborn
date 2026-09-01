@@ -27,8 +27,14 @@ auto PathGetParent( QString MainPath ) -> QString
     auto Path = MainPath.toStdString();
     auto Indx = 0;
 
-    for ( Indx = Path.size() ;; Indx-- )
+    /* start at the last valid index and reverse-scan: Path.size() itself
+     * is out of bounds, and a path without any separator would otherwise
+     * underflow Indx past 0 */
+    for ( Indx = ( int ) Path.size() - 1 ; Indx > 0 ; Indx-- )
         if ( Path[ Indx ] == '\\' ) break;
+
+    if ( Indx <= 0 )
+        return QString();
 
     Path = Path.substr( 0, Indx );
 
@@ -138,7 +144,9 @@ void FileBrowser::setupUi( QWidget* FileBrowser )
 
     QObject::connect( TableFileBrowser, &QTableWidget::cellDoubleClicked, this, &FileBrowser::onTableDoubleClick );
     QObject::connect( TableFileBrowser, &QTableWidget::customContextMenuRequested, this, &FileBrowser::onTableContextMenu );
-    QObject::connect( FileBrowserTree, &QTreeWidget::customContextMenuRequested, this, &FileBrowser::onTableContextMenu );
+    /* the tree must not pop the table's menu: its Download/Reload actions
+     * act on the table's current row */
+    QObject::connect( FileBrowserTree, &QTreeWidget::customContextMenuRequested, this, &FileBrowser::onTreeContextMenu );
     QObject::connect( ButtonGoUpDir, &QPushButton::clicked, this, &FileBrowser::onButtonUp );
     QObject::connect( InputFileBrowserPath, &QLineEdit::returnPressed, this, &FileBrowser::onInputPath );
 
@@ -277,6 +285,10 @@ void FileBrowser::onTableDoubleClick( int row, int column )
 {
     auto Item = ( ( FileBrowserTableItem* ) TableFileBrowser->item( row, column ) );
 
+    // the table can be cleared between the click and this handler
+    if ( Item == nullptr )
+        return;
+
     if ( Item->Data.Type.compare( "dir" ) == 0 )
     {
 
@@ -321,11 +333,19 @@ void FileBrowser::onButtonUp()
 {
     auto Path = PathGetParent( InputFileBrowserPath->text() );
 
+    /* already at the drive root: PathGetParent returns an empty string,
+     * don't send an empty-path request to the implant */
+    if ( Path.isEmpty() )
+        return;
+
     TableClear();
     ChangePathAndSendRequest( Path );
 }
 void FileBrowser::onTableMenuDownload(){
     auto Item = ( ( FileBrowserTableItem* ) TableFileBrowser->item( TableFileBrowser->currentRow(), 0 ) );
+
+    if ( Item == nullptr )
+        return;
 
     if ( Item->Data.Type.compare( "dir" ) == 0 )
     {
@@ -384,6 +404,8 @@ void FileBrowser::onTableMenuMkdir()
 void FileBrowser::onTableMenuReload()
 {
     auto Item = ( ( FileBrowserTableItem* ) TableFileBrowser->item( TableFileBrowser->currentRow(), 0 ) );
+    if ( Item == nullptr )
+        return;
     if(!Item->Data.Path.isEmpty()){
         QString Path = Item->Data.Path;
 

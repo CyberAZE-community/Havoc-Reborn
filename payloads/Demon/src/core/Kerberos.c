@@ -334,12 +334,16 @@ VOID ExtractTicket( HANDLE hLsa, ULONG authPackage, LUID luid, UNICODE_STRING ta
         Instance->Win32.LocalFree( retrieveRequest );
 }
 
+// LSA-returned strings are kernel-controlled in length: clamp every copy
+// to the destination field so a long name can't overflow the fixed buffer.
+#define CLAMP_AND_COPY( Field, Usn ) do {                                           ULONG _Len = MIN( ( Usn ).Length, sizeof( Session->Field ) - sizeof( WCHAR ) );     MemCopy( Session->Field, ( Usn ).Buffer, _Len );                             } while ( 0 )
+
 VOID CopySessionInfo( PSESSION_INFORMATION Session, PSECURITY_LOGON_SESSION_DATA Data )
 {
     // UserName
-    MemCopy( Session->UserName, Data->UserName.Buffer, Data->UserName.Length );
+    CLAMP_AND_COPY( UserName, Data->UserName );
     // Domain
-    MemCopy( Session->Domain, Data->LogonDomain.Buffer, Data->LogonDomain.Length );
+    CLAMP_AND_COPY( Domain, Data->LogonDomain );
     // LogonId
     Session->LogonId.LowPart  = Data->LogonId.LowPart;
     Session->LogonId.HighPart = Data->LogonId.HighPart;
@@ -357,27 +361,29 @@ VOID CopySessionInfo( PSESSION_INFORMATION Session, PSECURITY_LOGON_SESSION_DATA
     // LogonType
     Session->LogonType = Data->LogonType;
     // AuthenticationPackage
-    MemCopy( Session->AuthenticationPackage, Data->AuthenticationPackage.Buffer, Data->AuthenticationPackage.Length );
+    CLAMP_AND_COPY( AuthenticationPackage, Data->AuthenticationPackage );
     // LogonServer
-    MemCopy( Session->LogonServer, Data->LogonServer.Buffer, Data->LogonServer.Length );
+    CLAMP_AND_COPY( LogonServer, Data->LogonServer );
     // LogonServerDNSDomain
-    MemCopy( Session->LogonServerDNSDomain, Data->DnsDomainName.Buffer, Data->DnsDomainName.Length );
+    CLAMP_AND_COPY( LogonServerDNSDomain, Data->DnsDomainName );
     // Upn
-    MemCopy( Session->Upn, Data->Upn.Buffer, Data->Upn.Length );
+    CLAMP_AND_COPY( Upn, Data->Upn );
     // Tickets
     Session->Tickets = NULL;
 }
 
+#define CLAMP_AND_COPY_T( Field, Usn ) do {                                         ULONG _Len = MIN( ( Usn ).Length, sizeof( TicketInfo->Field ) - sizeof( WCHAR ) );     MemCopy( TicketInfo->Field, ( Usn ).Buffer, _Len );                          } while ( 0 )
+
 VOID CopyTicketInfo( PTICKET_INFORMATION TicketInfo, PKERB_TICKET_CACHE_INFO_EX Data )
 {
     // ClientName
-    MemCopy( TicketInfo->ClientName, Data->ClientName.Buffer, Data->ClientName.Length );
+    CLAMP_AND_COPY_T( ClientName, Data->ClientName );
     // ClientRealm
-    MemCopy( TicketInfo->ClientRealm, Data->ClientRealm.Buffer, Data->ClientRealm.Length );
+    CLAMP_AND_COPY_T( ClientRealm, Data->ClientRealm );
     // ServerName
-    MemCopy( TicketInfo->ServerName, Data->ServerName.Buffer, Data->ServerName.Length );
+    CLAMP_AND_COPY_T( ServerName, Data->ServerName );
     // ServerRealm
-    MemCopy( TicketInfo->ServerRealm, Data->ServerRealm.Buffer, Data->ServerRealm.Length );
+    CLAMP_AND_COPY_T( ServerRealm, Data->ServerRealm );
     // StartTime
     TicketInfo->StartTime.LowPart  = Data->StartTime.LowPart;
     TicketInfo->StartTime.HighPart = Data->StartTime.HighPart;

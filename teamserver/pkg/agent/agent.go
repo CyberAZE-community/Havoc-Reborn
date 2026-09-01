@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -323,7 +322,7 @@ func RegisterInfoToInstance(Header Header, RegisterInfo map[string]any) *Agent {
 
 	agent.Info.FirstCallIn = time.Now().Format("02/01/2006 15:04:05")
 
-	agent.Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
+	agent.Info.LastCallIn = time.Now().UTC().Format("02-01-2006 15:04:05")
 
 	agent.BackgroundCheck = false
 	agent.Active = true
@@ -473,7 +472,7 @@ func ParseDemonRegisterRequest(AgentID int, Parser *parser.Parser, ExternalIP st
 			Session.NameID = fmt.Sprintf("%08x", DemonID)
 			Session.Info.MagicValue = MagicValue
 			Session.Info.FirstCallIn = time.Now().Format("02/01/2006 15:04:05")
-			Session.Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
+			Session.Info.LastCallIn = time.Now().UTC().Format("02-01-2006 15:04:05")
 			Session.Info.Hostname = Hostname
 			Session.Info.DomainName = DomainName
 			Session.Info.Username = Username
@@ -656,9 +655,20 @@ func (a *Agent) RequestCompleted(RequestID uint32) {
 			break
 		}
 	}
+
+	// pivot children never call GetQueuedJobs, so a job they keep on their
+	// own queue "for the task size calculator" would otherwise grow without
+	// bound (M73); direct agents already had the job drained on checkin, so
+	// this is a no-op for them
+	for i := range a.JobQueue {
+		if a.JobQueue[i].RequestID == RequestID {
+			a.JobQueue = append(a.JobQueue[:i], a.JobQueue[i+1:]...)
+			break
+		}
+	}
 }
 
-func (a *Agent) AddJobToQueue(job Job) []Job {
+func (a *Agent) AddJobToQueue(job Job) {
 	// store the RequestID
 	a.AddRequest(job)
 	// if it's a pivot agent then add the job to the parent
@@ -671,7 +681,6 @@ func (a *Agent) AddJobToQueue(job Job) []Job {
 		a.JobQueue = append(a.JobQueue, job)
 		a.m.Unlock()
 	}
-	return a.JobQueue
 }
 
 func (a *Agent) GetQueuedJobs() []Job {
@@ -770,10 +779,67 @@ func (a *Agent) GetQueuedJobs() []Job {
 }
 
 func (a *Agent) UpdateLastCallback(Teamserver TeamServer) {
-	a.Info.LastCallIn = time.Now().Format("02-01-2006 15:04:05")
+	// the write races with operator/event goroutines reading LastCallIn
+	// through ToMap; take the per-agent lock just for the write and call
+	// into the teamserver outside it (those paths take the lock again)
+	a.m.Lock()
+	a.Info.LastCallIn = time.Now().UTC().Format("02-01-2006 15:04:05")
+	a.m.Unlock()
+
 	Teamserver.AgentUpdate(a)
 
 	Teamserver.AgentLastTimeCalled(a.NameID, a.Info.LastCallIn, a.Info.SleepDelay, a.Info.SleepJitter, a.Info.KillDate, a.Info.WorkingHours)
+}
+
+// PivotLinkAdd appends Link to the agent's pivot links under a.m so the
+// mutation can't race another goroutine iterating the slice.
+func (a *Agent) PivotLinkAdd(Link *Agent) {
+	a.m.Lock()
+	a.Pivots.Links = append(a.Pivots.Links, Link)
+	a.m.Unlock()
+}
+
+// PivotLinkRemove splices out the first pivot link whose NameID matches.
+func (a *Agent) PivotLinkRemove(NameID string) {
+	a.m.Lock()
+	for i := range a.Pivots.Links {
+		if a.Pivots.Links[i].NameID == NameID {
+			a.Pivots.Links = append(a.Pivots.Links[:i], a.Pivots.Links[i+1:]...)
+			break
+		}
+	}
+	a.m.Unlock()
+}
+
+// PivotLinksClear drops all pivot links under a.m.
+func (a *Agent) PivotLinksClear() {
+	a.m.Lock()
+	a.Pivots.Links = nil
+	a.m.Unlock()
+}
+
+// PivotsParent returns the pivot parent under a.m.
+func (a *Agent) PivotsParent() *Agent {
+	a.m.Lock()
+	parent := a.Pivots.Parent
+	a.m.Unlock()
+	return parent
+}
+
+// PivotsSnapshotLinks returns a copy of the pivot links under a.m, safe to
+// iterate while other goroutines mutate the slice.
+func (a *Agent) PivotsSnapshotLinks() []*Agent {
+	a.m.Lock()
+	links := append([]*Agent(nil), a.Pivots.Links...)
+	a.m.Unlock()
+	return links
+}
+
+// PivotParentSet reparents the agent under a.m.
+func (a *Agent) PivotParentSet(parent *Agent) {
+	a.m.Lock()
+	a.Pivots.Parent = parent
+	a.m.Unlock()
 }
 
 func (a *Agent) PivotAddJob(job Job) {
@@ -905,20 +971,26 @@ func (a *Agent) DownloadWrite(FileID int, data []byte) error {
 
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
+			// a failed download must not be retried by re-creating the
+			// file: that truncates all previously written chunks (leaving
+			// a silently corrupt file) and leaked the old handle (M76).
+			// instead close the handle, mark the download stopped and
+			// report the failure to the operator.
+			if a.Downloads[i].State != DOWNLOAD_STATE_RUNNING {
+				return errors.New("download is no longer running: " + a.Downloads[i].LocalFile)
+			}
+
 			_, err := a.Downloads[i].File.Write(data)
 			if err != nil {
-				a.Downloads[i].File, err = os.Create(a.Downloads[i].LocalFile)
-				if err != nil {
-					return errors.New("Failed to create file: " + err.Error())
+				if closeErr := a.Downloads[i].File.Close(); closeErr != nil {
+					logger.Error(fmt.Sprintf("Failed to close download (%x) file: %v", FileID, closeErr))
 				}
-
-				_, err = a.Downloads[i].File.Write(data)
-				if err != nil {
-					return errors.New("Failed to write to file [" + a.Downloads[i].LocalFile + "]: " + err.Error())
-				}
-
-				a.Downloads[i].Progress += int64(len(data))
+				a.Downloads[i].File = nil
+				a.Downloads[i].State = DOWNLOAD_STATE_STOPPED
+				return errors.New("Failed to write to file [" + a.Downloads[i].LocalFile + "], download aborted: " + err.Error())
 			}
+
+			a.Downloads[i].Progress += int64(len(data))
 			return nil
 		}
 	}
@@ -931,9 +1003,13 @@ func (a *Agent) DownloadClose(FileID int) {
 
 	for i := range a.Downloads {
 		if a.Downloads[i].FileID == FileID {
-			err := a.Downloads[i].File.Close()
-			if err != nil {
-				logger.Error(fmt.Sprintf("Failed to close download (%x) file: %v", a.Downloads[i].FileID, err))
+			// the handle may already be gone if the download was aborted
+			// on a write error (M76)
+			if a.Downloads[i].File != nil {
+				err := a.Downloads[i].File.Close()
+				if err != nil {
+					logger.Error(fmt.Sprintf("Failed to close download (%x) file: %v", a.Downloads[i].FileID, err))
+				}
 			}
 
 			a.Downloads = append(a.Downloads[:i], a.Downloads[i+1:]...)
@@ -1075,7 +1151,6 @@ func (a *Agent) PortFwdWrite(SocketID int, data []byte) error {
 
 func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
 	var (
-		data    = bytes.Buffer{}
 		PortFwd *PortFwd
 	)
 
@@ -1095,14 +1170,21 @@ func (a *Agent) PortFwdRead(SocketID int) ([]byte, error) {
 
 	if PortFwd != nil {
 		if conn != nil {
-			/* read from our socket to the data buffer or return error */
-			_, err := io.Copy(&data, conn)
-			if err != nil {
+			/* read a single chunk (up to 64KB, like the SOCKS path) from
+			 * the forwarded host instead of buffering the entire response
+			 * until EOF (M74): bulk transfers stream to the implant instead
+			 * of being buffered wholesale and then dropped implant-side for
+			 * exceeding DEMON_MAX_RESPONSE_LENGTH, and long-lived
+			 * connections (SSH, keep-alive HTTP) relay per read. closing
+			 * the connection concurrently makes the read return an error. */
+			var chunk = make([]byte, 0x10000)
+			n, err := conn.Read(chunk)
+			if err != nil && n == 0 {
 				return nil, err
 			}
 
 			/* return the read data */
-			return data.Bytes(), nil
+			return chunk[:n], nil
 		} else {
 			return nil, errors.New("rportfwd connection is empty")
 		}
@@ -1297,6 +1379,12 @@ func (a *Agent) ToMap() map[string]interface{} {
 	// while marshalling and never mutated through the returned map).
 	a.m.Lock()
 	ParentAgent = a.Pivots.Parent
+	PivotLinkIDs := make([]string, 0, len(a.Pivots.Links))
+	for _, link := range a.Pivots.Links {
+		if link != nil {
+			PivotLinkIDs = append(PivotLinkIDs, link.NameID)
+		}
+	}
 	agentCopy := Agent{
 		NameID:          a.NameID,
 		JobQueue:        append([]Job(nil), a.JobQueue...),
@@ -1306,7 +1394,7 @@ func (a *Agent) ToMap() map[string]interface{} {
 		Reason:          a.Reason,
 		BofCallbacks:    a.BofCallbacks,
 		Info:            a.Info,
-		Pivots:          Pivots{Links: a.Pivots.Links},
+		Pivots:          Pivots{},
 		Downloads:       append([]*Download(nil), a.Downloads...),
 		PortFwds:        a.PortFwds,
 		SocksCli:        a.SocksCli,
@@ -1331,6 +1419,10 @@ func (a *Agent) ToMap() map[string]interface{} {
 	if ParentAgent != nil {
 		Info["PivotParent"] = ParentAgent.NameID
 	}
+
+	// pivot links are exposed as NameIDs only: embedding the live *Agent
+	// pointers here handed marshal-time consumers mutable shared state
+	Info["PivotLinks"] = PivotLinkIDs
 
 	Info["MagicValue"] = MagicValue
 

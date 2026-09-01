@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"fmt"
 
@@ -67,10 +68,9 @@ type NegotiationHeader struct {
 	Methods  []byte
 }
 
-func SubNegotiationClient(conn net.Conn) (NegotiationHeader, error) {
+func SubNegotiationClient(reader *bufio.Reader) (NegotiationHeader, error) {
 	var (
 		header     NegotiationHeader
-		reader     = bufio.NewReader(conn)
 		err        error
 		NumMethods byte
 	)
@@ -111,10 +111,9 @@ func SubNegotiationClient(conn net.Conn) (NegotiationHeader, error) {
 	return header, nil
 }
 
-func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
+func ReadSocksHeader(reader *bufio.Reader) (SocksHeader, error) {
 	var (
 		header SocksHeader
-		reader = bufio.NewReader(conn)
 		err    error
 	)
 
@@ -176,12 +175,8 @@ func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
 	if header.ATYP == 0x1 {
 		// IP V4 address
 		header.IpDomain = make([]byte, 4)
-		n, err := reader.Read(header.IpDomain)
-		if err != nil {
+		if _, err := io.ReadFull(reader, header.IpDomain); err != nil {
 			return header, err
-		}
-		if n != 4 {
-			return header, errors.New("failed to read the IPv4 address")
 		}
 	} else if header.ATYP == 0x3 {
 		// DOMAINNAME
@@ -191,22 +186,14 @@ func ReadSocksHeader(conn net.Conn) (SocksHeader, error) {
 			return header, err
 		}
 		header.IpDomain = make([]byte, uint32(DomainLength))
-		n, err := reader.Read(header.IpDomain)
-		if err != nil {
+		if _, err := io.ReadFull(reader, header.IpDomain); err != nil {
 			return header, err
-		}
-		if uint32(n) != uint32(DomainLength) {
-			return header, errors.New("failed to read the domain")
 		}
 	} else if header.ATYP == 0x4 {
 		// IP V6 address
 		header.IpDomain = make([]byte, 16)
-		n, err := reader.Read(header.IpDomain)
-		if err != nil {
+		if _, err := io.ReadFull(reader, header.IpDomain); err != nil {
 			return header, err
-		}
-		if n != 16 {
-			return header, errors.New("failed to read the IPv6 address")
 		}
 	} else {
 		return header, fmt.Errorf("socks ATYP (%d) is not valid", header.ATYP)

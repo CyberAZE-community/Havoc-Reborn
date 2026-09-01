@@ -18,6 +18,7 @@ namespace HavocNamespace
         Util::ConnectionInfo* Teamserver    = nullptr;
         HavocSpace::Packager* Packager      = nullptr;
         bool                  UserDisconnect = false;
+        bool                  RecoveryDialogShown = false;
 
     public:
         QString ErrorString = QString();

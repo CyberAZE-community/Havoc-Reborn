@@ -204,6 +204,12 @@ void HavocNamespace::UserInterface::HavocUi::OneSecondTick()
 
 void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util::SessionItem Session, QString Mark)
 {
+    /* the disconnect teardown nulls TabSession/Connector and they stay null
+     * until the next successful connect; called from the 1s health timer this
+     * would otherwise dereference null right after a drop */
+    if ( HavocX::Teamserver.TabSession == nullptr || HavocX::Teamserver.TabSession->SessionTableWidget == nullptr )
+        return;
+
     for ( int i = 0; i <  HavocX::Teamserver.TabSession->SessionTableWidget->SessionTableWidget->rowCount(); i++ )
     {
         auto AgentID = HavocX::Teamserver.TabSession->SessionTableWidget->SessionTableWidget->item( i, 0 )->text();
@@ -252,7 +258,8 @@ void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util:
                 }
             };
 
-            HavocX::Connector->SendPackage( Package );
+            if ( HavocX::Connector != nullptr )
+                HavocX::Connector->SendPackage( Package );
 
             delete Package;
 
@@ -264,6 +271,12 @@ void HavocNamespace::UserInterface::HavocUi::MarkSessionAs(HavocNamespace::Util:
 
 void HavocNamespace::UserInterface::HavocUi::UpdateSessionsHealth()
 {
+    /* the disconnect teardown deletes the TabSession widgets while the
+     * session list survives until the next successful connect; guard the
+     * timer path or the client dies ~1s after any disconnect */
+    if ( HavocX::Teamserver.TabSession == nullptr || HavocX::Teamserver.TabSession->SessionTableWidget == nullptr )
+        return;
+
     for ( auto& session : HavocX::Teamserver.Sessions )
     {
         if ( session.Marked.compare( "Dead" ) == 0 )
@@ -320,25 +333,23 @@ void HavocNamespace::UserInterface::HavocUi::UpdateSessionsHealth()
 
         if ( ( ( session.WorkingHours >> 22 ) & 1 ) == 1 )
         {
+            /* mirror the Demon's InWorkingHours (Command.c): compare as
+             * minutes of the day so overnight ranges (e.g. 22:00-06:00)
+             * wrap correctly; inside the window the agent is active */
             uint32_t StartHour   = ( session.WorkingHours >> 17 ) & 0b011111;
             uint32_t StartMinute = ( session.WorkingHours >> 11 ) & 0b111111;
             uint32_t EndHour     = ( session.WorkingHours >>  6 ) & 0b011111;
             uint32_t EndMinute   = ( session.WorkingHours >>  0 ) & 0b111111;
-            bool isOffHours = false;
 
-            if ( StartHour < Now.time().hour() || EndHour > Now.time().hour() ) {
-                isOffHours = true;
-            }
+            uint32_t Start  = StartHour * 60 + StartMinute;
+            uint32_t End    = EndHour   * 60 + EndMinute;
+            uint32_t NowMin = Now.time().hour() * 60 + Now.time().minute();
 
-            if ( StartHour == Now.time().hour() && StartMinute < Now.time().minute() ) {
-                isOffHours = true;
-            }
+            bool isInWorkingHours = ( Start <= End ) ?
+                    ( NowMin >= Start && NowMin <= End ) :
+                    ( NowMin >= Start || NowMin <= End );
 
-            if ( EndHour == Now.time().hour() && EndMinute > Now.time().minute() ) {
-                isOffHours = true;
-            }
-
-            if ( isOffHours ) {
+            if ( ! isInWorkingHours ) {
                 // agent is offhours
                 session.Health = "offhours";
                 HavocX::Teamserver.TabSession->SessionTableWidget->ChangeSessionValue(session.Name, 9, session.Health);
@@ -617,9 +628,18 @@ void HavocNamespace::UserInterface::HavocUi::ConnectEvents()
     } );
 }
 
-void HavocNamespace::UserInterface::HavocUi::NewBottomTab(QWidget* TabWidget, const std::string& TitleName, const QString IconPath ) const
+bool HavocNamespace::UserInterface::HavocUi::NewBottomTab(QWidget* TabWidget, const std::string& TitleName, const QString IconPath ) const
 {
+    /* scripts may run before a teamserver session exists: report failure
+     * instead of touching (or leaking) the caller's widget */
+    if ( HavocX::Teamserver.TabSession == nullptr )
+    {
+        spdlog::warn( "NewBottomTab called before a teamserver session exists" );
+        return false;
+    }
+
     HavocX::Teamserver.TabSession->NewBottomTab( TabWidget, TitleName );
+    return true;
 }
 
 void HavocNamespace::UserInterface::HavocUi::setDBManager(HavocSpace::DBManager* dbManager)
@@ -636,10 +656,19 @@ void UserInterface::HavocUi::NewTeamserverTab(QString Name )
     TeamserverTabWidget->setCurrentIndex( id );
 }
 
-void UserInterface::HavocUi::NewSmallTab(QWidget *TabWidget, const string &TitleName ) const
+bool UserInterface::HavocUi::NewSmallTab(QWidget *TabWidget, const string &TitleName ) const
 {
+    /* scripts may run before a teamserver session exists: report failure
+     * instead of touching (or leaking) the caller's widget */
     auto Teamserver = HavocX::Teamserver.TabSession;
+    if ( Teamserver == nullptr )
+    {
+        spdlog::warn( "NewSmallTab called before a teamserver session exists" );
+        return false;
+    }
+
     Teamserver->NewWidgetTab( TabWidget, TitleName );
+    return true;
 }
 
 void UserInterface::HavocUi::PythonPrepare()

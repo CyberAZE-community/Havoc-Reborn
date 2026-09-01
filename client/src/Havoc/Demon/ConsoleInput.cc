@@ -226,6 +226,9 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
     auto IsDemonAgent  = false;
     auto AgentData     = ServiceAgent();
 
+    if ( InputCommands.empty() )
+        return false;
+
     // check if it's a generic demon or 3rd party agent
 
     if ( MagicValue == DemonMagicValue )
@@ -270,17 +273,17 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                     DemonConsole->Console->append( "" );
                                     DemonConsole->Console->append( " - Module        :  " + commandIndex.CommandString );
-                                    DemonConsole->Console->append( " - Sub Command   :  " + SubCommand.CommandString );
-                                    DemonConsole->Console->append( " - Description   :  " + SubCommand.Description );
+                                    DemonConsole->Console->append( " - Sub Command   :  " + SubCommand.CommandString.toHtmlEscaped() );
+                                    DemonConsole->Console->append( " - Description   :  " + SubCommand.Description.toHtmlEscaped() );
 
                                     if ( ! SubCommand.Behavior.isEmpty() )
-                                        DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior );
+                                        DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior.toHtmlEscaped() );
 
                                     if ( ! SubCommand.Usage.isEmpty() )
-                                        DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " "+ SubCommand.CommandString + " " + SubCommand.Usage );
+                                        DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " "+ SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Usage.toHtmlEscaped() );
 
                                     if ( ! SubCommand.Example.isEmpty() )
-                                        DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " "+ SubCommand.CommandString + " " + SubCommand.Example );
+                                        DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " "+ SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Example.toHtmlEscaped() );
                                     /*
                                     if ( ! SubCommand.Usage.isEmpty() )
                                         DemonConsole->Console->append( " - Required Args :  " + QString( to_string( SubCommand.Usage.split( " " ).size() ).c_str() ) );*/
@@ -289,7 +292,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     {
                                         DemonConsole->Console->append( " - Options       :  " );
                                         for ( auto& Option : SubCommand.Options )
-                                            DemonConsole->Console->append( "      " + Option);
+                                            DemonConsole->Console->append( "      " + Option.toHtmlEscaped());
                                     }
 
                                     break;
@@ -307,18 +310,18 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                             FoundSubCommand = true;
 
                                             DemonConsole->Console->append( "" );
-                                            DemonConsole->Console->append( " - Module        :  " + QString( Command.Module.c_str() ) );
-                                            DemonConsole->Console->append( " - Sub Command   :  " + QString( Command.Command.c_str() ) );
-                                            DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ) );
+                                            DemonConsole->Console->append( " - Module        :  " + QString( Command.Module.c_str() ).toHtmlEscaped() );
+                                            DemonConsole->Console->append( " - Sub Command   :  " + QString( Command.Command.c_str() ).toHtmlEscaped() );
+                                            DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
 
                                             // if ( Command.Behavior != 0 )
-                                            //     DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior );
+                                            //     DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior.toHtmlEscaped() );
 
                                             if ( Command.Usage.c_str() )
-                                                DemonConsole->Console->append( " - Usage         :  " + QString( Command.Module.c_str() ) + " " + QString( Command.Command.c_str() ) + " " + QString( Command.Usage.c_str() ) );
+                                                DemonConsole->Console->append( " - Usage         :  " + QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Usage.c_str() ).toHtmlEscaped() );
 
                                             if ( Command.Example.c_str() )
-                                                DemonConsole->Console->append( " - Example       :  " + QString( Command.Module.c_str() ) + " " + QString( Command.Command.c_str() ) + " " + QString( Command.Example.c_str() ) );
+                                                DemonConsole->Console->append( " - Example       :  " + QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
 
                                             /*if ( ! QString( Command.Usage.c_str() ).isEmpty() )
                                                 DemonConsole->Console->append( " - Required Args :  " + QString( to_string( SubCommand.Usage.split( " " ).size() ).c_str() ) );*/
@@ -328,7 +331,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                 if ( ! FoundSubCommand )
                                 {
-                                    DemonConsole->Console->append( Util::ColorText::Red( "[-]" ) + " Couldn't find sub command in \"" + InputCommands[ 1 ] + "\": " + InputCommands[ 2 ] );
+                                    DemonConsole->Console->append( Util::ColorText::Red( "[-]" ) + " Couldn't find sub command in \"" + InputCommands[ 1 ] + "\": " + InputCommands[ 2 ].toHtmlEscaped() );
                                 }
                             }
 
@@ -336,17 +339,17 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         else
                         {
                             DemonConsole->Console->append( "" );
-                            DemonConsole->Console->append( " - Command       :  " + commandIndex.CommandString );
-                            DemonConsole->Console->append( " - Description   :  " + commandIndex.Description );
+                            DemonConsole->Console->append( " - Command       :  " + commandIndex.CommandString.toHtmlEscaped() );
+                            DemonConsole->Console->append( " - Description   :  " + commandIndex.Description.toHtmlEscaped() );
 
                             if ( ! commandIndex.Behavior.isEmpty() )
-                                DemonConsole->Console->append( " - Behavior      :  " + commandIndex.Behavior );
+                                DemonConsole->Console->append( " - Behavior      :  " + commandIndex.Behavior.toHtmlEscaped() );
 
                             if ( ! commandIndex.Usage.isEmpty() )
-                                DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " " + commandIndex.Usage );
+                                DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " " + commandIndex.Usage.toHtmlEscaped() );
 
                             if ( ! commandIndex.Example.isEmpty() )
-                                DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " " + commandIndex.Example );
+                                DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " " + commandIndex.Example.toHtmlEscaped() );
 
                             if ( ! commandIndex.Usage.isEmpty() && commandIndex.SubCommands.empty() )
                                 DemonConsole->Console->append(" - Required Args :  " + QString(to_string(commandIndex.Usage.split(" ").size()).c_str()));
@@ -376,7 +379,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                         std::string Spaces      = std::string( ( TotalSize - CmdSize ), ' ' );
 
-                                        DemonConsole->Console->append( "  " + SubCommand.CommandString + QString( Spaces.c_str() ) + SubCommand.Description );
+                                        DemonConsole->Console->append( "  " + SubCommand.CommandString.toHtmlEscaped() + QString( Spaces.c_str() ) + SubCommand.Description.toHtmlEscaped() );
                                     }
                                 }
 
@@ -385,9 +388,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     if ( InputCommands[ 1 ].compare( Command.Module.c_str() ) == 0 )
                                     {
                                         int         TotalSize   = 19;
-                                        std::string Spaces      = std::string( ( TotalSize - Command.Command.size() ), ' ' );
+                                        auto        CmdSize     = ( int ) Command.Command.size();
+                                        if ( CmdSize > TotalSize )
+                                            CmdSize = TotalSize;
+                                        std::string Spaces      = std::string( ( TotalSize - CmdSize ), ' ' );
 
-                                        DemonConsole->Console->append( "  " + QString( Command.Command.c_str() ) + QString( Spaces.c_str() ) + "       " + QString( Command.Help.c_str() ) );
+                                        DemonConsole->Console->append( "  " + QString( Command.Command.c_str() ).toHtmlEscaped() + QString( Spaces.c_str() ) + "       " + QString( Command.Help.c_str() ).toHtmlEscaped() );
                                     }
                                 }
                             }
@@ -415,14 +421,14 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     if ( InputCommands[ 1 ].compare( Command.Module.c_str() ) == 0 && InputCommands[ 2 ].compare( Command.Command.c_str() ) == 0 )
                                     {
                                         DemonConsole->Console->append( "" );
-                                        DemonConsole->Console->append( " - Command       :  " + QString( Module.Name.c_str() ) + QString( " " ) + QString( Command.Command.c_str() ) );
-                                        DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ) );
+                                        DemonConsole->Console->append( " - Command       :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() );
+                                        DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
 
                                         if ( ! Module.Usage.empty() )
-                                            DemonConsole->Console->append( " - Usage         :  " + QString( Module.Name.c_str() ) + QString( " " ) + QString( Command.Command.c_str() ) + " " + QString( Command.Usage.c_str() )  );
+                                            DemonConsole->Console->append( " - Usage         :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Usage.c_str() ).toHtmlEscaped()  );
 
                                         if ( ! Command.Example.empty() )
-                                            DemonConsole->Console->append( " - Example       :  " + QString( Module.Name.c_str() ) + QString( " " ) + QString( Command.Command.c_str() ) + " " + QString( Command.Example.c_str() ) );
+                                            DemonConsole->Console->append( " - Example       :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
 
                                         if ( ! Command.Usage.empty() )
                                             DemonConsole->Console->append(" - Required Args :  " + QString( to_string( QString( Command.Usage.c_str() ).split(" ").size() ).c_str() ) );
@@ -458,9 +464,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     if ( InputCommands[ 1 ].compare( Command.Module.c_str() ) == 0 )
                                     {
                                         int         TotalSize   = 19;
-                                        std::string Spaces      = std::string( ( TotalSize - Command.Command.size() ), ' ' );
+                                        auto        CmdSize     = ( int ) Command.Command.size();
+                                        if ( CmdSize > TotalSize )
+                                            CmdSize = TotalSize;
+                                        std::string Spaces      = std::string( ( TotalSize - CmdSize ), ' ' );
 
-                                        DemonConsole->Console->append( "  " + QString( Command.Command.c_str() ) + QString( Spaces.c_str() ) + "       " + QString( Command.Help.c_str() ) );
+                                        DemonConsole->Console->append( "  " + QString( Command.Command.c_str() ).toHtmlEscaped() + QString( Spaces.c_str() ) + "       " + QString( Command.Help.c_str() ).toHtmlEscaped() );
                                     }
                                 }
                             }
@@ -478,7 +487,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                 DemonConsole->Console->append( "" );
                                 DemonConsole->Console->append( " - Command       :  " + QString( Command.Command.c_str() ) );
-                                DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ) );
+                                DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
 
                                 if ( Command.Usage.c_str() )
                                     DemonConsole->Console->append( " - Usage         : " + QString( Command.Module.c_str() ) + " " + QString( Command.Command.c_str() ) + " " + QString( Command.Usage.c_str() ) );
@@ -492,7 +501,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                     // Ok we have no clue what you mean lol.
                     if ( ! FoundCommand )
-                        DemonConsole->Console->append( Util::ColorText::Red( "[-]" ) + " Couldn't find command: " + InputCommands[ 1 ] );
+                        DemonConsole->Console->append( Util::ColorText::Red( "[-]" ) + " Couldn't find command: " + InputCommands[ 1 ].toHtmlEscaped() );
                 }
             }
             else
@@ -509,23 +518,23 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     {
                         if (i.Module)
                         {
-                            currentLine = "  " + i.CommandString + QString(std::string((TotalSize - i.CommandString.size()), ' ').c_str()) + "Module " + "      " + i.Description;
+                            currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Module " + "      " + i.Description;
                         }
-                        else if (i.SubCommands.empty())
+                        else if (!i.SubCommands.empty())
                         {
                             if (i.SubCommands[0].CommandString != nullptr)
                             {
-                                currentLine = "  " + i.CommandString + QString(std::string((TotalSize - i.CommandString.size()), ' ').c_str()) + "Module " + "      " + i.Description;
+                                currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Module " + "      " + i.Description;
                             }
                         }
                         else
                         {
-                            currentLine = "  " + i.CommandString + QString(std::string((TotalSize - i.CommandString.size()), ' ').c_str()) + "Command" + "      " + i.Description;
+                            currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Command" + "      " + i.Description;
                         }
                     }
                     else
                     {
-                        currentLine = "  " + i.CommandString + QString(std::string((TotalSize - i.CommandString.size()), ' ').c_str()) + "Command" + "      " + i.Description;
+                        currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Command" + "      " + i.Description;
                     }
 
                     commandOutput.push_back(currentLine);
@@ -535,7 +544,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     if (!Module.Name.empty())
                     {
-                        QString currentLine = "  " + QString(Module.Name.c_str()) + QString(std::string((TotalSize - Module.Name.size()), ' ').c_str()) + "Module " + "      " + QString(Module.Description.c_str());
+                        QString currentLine = "  " + QString(Module.Name.c_str()) + QString(std::string((std::max( 0, TotalSize - (int)Module.Name.size() )), ' ').c_str()) + "Module " + "      " + QString(Module.Description.c_str());
                         commandOutput.push_back(currentLine);
                     }
                 }
@@ -544,7 +553,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     if (Command.Module.empty())
                     {
-                        QString currentLine = "  " + QString(Command.Command.c_str()) + QString(std::string((TotalSize - Command.Command.size()), ' ').c_str()) + "Command" + "      " + QString(Command.Help.c_str());
+                        QString currentLine = "  " + QString(Command.Command.c_str()) + QString(std::string((std::max( 0, TotalSize - (int)Command.Command.size() )), ' ').c_str()) + "Command" + "      " + QString(Command.Help.c_str());
                         commandOutput.push_back(currentLine);
                     }
                 }
@@ -876,14 +885,14 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
         }
         else if (InputCommands[0].compare( "mkdir" ) == 0)
         {
-            auto Path = JoinAtIndex( InputCommands, 1 );
-            TaskID = CONSOLE_INFO( "Tasked demon to create new directory: " + Path );
-
-            if ( InputCommands.size() < 1 )
+            if ( InputCommands.size() < 2 )
             {
                 CONSOLE_ERROR( "Not enough arguments" );
                 return false;
             }
+
+            auto Path = JoinAtIndex( InputCommands, 1 );
+            TaskID = CONSOLE_INFO( "Tasked demon to create new directory: " + Path );
 
             CommandInputList[ TaskID ] = commandline;
             SEND( Execute.FS( TaskID, "mkdir", Path ) );
@@ -995,7 +1004,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     Index++;
 
                     Verbose = "TRUE";
-                    if ( InputCommands[ Index ].compare( "--silent" ) == 0 )
+                    if ( Index < InputCommands.length() && InputCommands[ Index ].compare( "--silent" ) == 0 )
                     {
                         Verbose = "FALSE";
                         Index++;
@@ -1003,10 +1012,18 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
 
                     Piped = "TRUE";
-                    if ( InputCommands[ Index ].compare( "--no-pipe" ) == 0 )
+                    if ( Index < InputCommands.length() && InputCommands[ Index ].compare( "--no-pipe" ) == 0 )
                     {
                         Piped = "FALSE";
                         Index++;
+                    }
+
+                    if ( Index >= InputCommands.length() )
+                    {
+                        DemonConsole->Console->append( "" );
+                        DemonConsole->Console->append( Prompt );
+                        DemonConsole->TaskError( "Process path not specified" );
+                        return false;
                     }
 
                     Program = InputCommands[ Index ];
@@ -1248,6 +1265,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     else
                     {
                         CONSOLE_ERROR( "Incorrect process arch specified: " + TargetArch )
+                        return false;
                     }
 
                     if ( ! QFile::exists( ShellcodeBinaryPath ) )
@@ -1283,6 +1301,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     else
                     {
                         CONSOLE_ERROR( "Incorrect process arch specified: " + TargetArch )
+                        return false;
                     }
 
                     if ( ! QFile::exists( ShellcodeBinaryPath ) )
@@ -1524,10 +1543,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
             auto Path = InputCommands[ 1 ];
             auto Args = QByteArray();
 
-            if ( InputCommands.size() > 3 )
+            // NOTE: the 'go' function name is hardcoded, so the arguments
+            // start at token 2 (same as 'dotnet inline-execute' below)
+            if ( InputCommands.size() > 2 )
             {
-                // NOTE: the 'dotnet inline-execute assembly.exe (args)' command does not need to escape quotes
-                Args = JoinAtIndex( commandline.split( " " ), 3 ).toUtf8();
+                Args = JoinAtIndex( commandline.split( " " ), 2 ).toUtf8();
             }
 
             if ( ! QFile::exists( Path ) )
@@ -1805,9 +1825,15 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 auto RemotePath = QString();
 
                 if ( Content == nullptr )
+                {
+                    CONSOLE_ERROR( "Failed to read local file: " + FilePath )
                     return false;
+                }
 
-                auto FileName = FilePath.mid( FilePath.lastIndexOf("/") + 1, FilePath.size() - FilePath.lastIndexOf("/") - 1 );
+                /* accept both unix- and windows-style local paths for the
+                 * remote filename */
+                auto Sep      = qMax( FilePath.lastIndexOf( "/" ), FilePath.lastIndexOf( "\\" ) );
+                auto FileName = FilePath.mid( Sep + 1 );
 
                 // if no remote path was specified, upload the file with the same name to the current directory
                 if ( InputCommands.size() == 2 )
@@ -1871,7 +1897,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     }
                     TaskID = CONSOLE_INFO( "Tasked demon to configure sleep-mask: " + InputCommands[ 2 ] );
                 }
-                if ( InputCommands[ 1 ].compare( "implant.coffee.veh" ) == 0 )
+                else if ( InputCommands[ 1 ].compare( "implant.coffee.veh" ) == 0 )
                 {
                     if ( InputCommands.size() < 3 ) {
                         CONSOLE_ERROR( "Not enough arguments" ); return false;
@@ -1883,7 +1909,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     }
                     TaskID = CONSOLE_INFO( "Tasked demon to configure coffee VEH: " + InputCommands[ 2 ] );
                 }
-                if ( InputCommands[ 1 ].compare( "implant.coffee.threaded" ) == 0 )
+                else if ( InputCommands[ 1 ].compare( "implant.coffee.threaded" ) == 0 )
                 {
                     if ( InputCommands.size() < 3 ) {
                         CONSOLE_ERROR( "Not enough arguments" ); return false;
@@ -2433,7 +2459,10 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     /* Check if command is matching */
                     if ( InputCommands[ 1 ].compare( Command.Command.c_str() ) == 0 )
                     {
-                        PyObject* FuncArgs = PyTuple_New( InputCommands.size() - 1 );
+                        /* hold the GIL for everything python below, including
+                         * the tuple construction and the callable check */
+                        auto      GilState = PyGILState_Ensure();
+                        PyObject* FuncArgs = nullptr;
                         PyObject* Return   = nullptr;
                         auto      Path     = std::string();
 
@@ -2441,8 +2470,11 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                         if ( Send )
                         {
+                            FuncArgs = PyTuple_New( InputCommands.size() - 1 );
                             if ( ! PyCallable_Check( ( PyObject* ) Command.Function ) )
                             {
+                                Py_CLEAR( FuncArgs );
+                                PyGILState_Release( GilState );
                                 DemonConsole->TaskError( "A callable is required for " + InputCommands[ 0 ] + " " + InputCommands[ 1 ] );
                                 return false;
                             }
@@ -2461,11 +2493,6 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                             // Set arguments of the functions
                             for ( u32 i = 2; i < InputCommands.size(); i++ )
                                 PyTuple_SetItem( FuncArgs, i - 1, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
-
-                            /* hold the GIL for the whole result-handling
-                             * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
-                             * PyUnicode_AsUTF8), not just the call itself */
-                            auto GilState = PyGILState_Ensure();
 
                             Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
@@ -2531,8 +2558,9 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                             Py_CLEAR( Return );
                             Py_CLEAR( FuncArgs );
-                            PyGILState_Release( GilState );
                         }
+
+                        PyGILState_Release( GilState );
 
                         return true;
                     }
@@ -2540,15 +2568,22 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 /* Alright it's a command i hope ? Check if command is matching */
                 else if ( InputCommands[ 0 ].compare( Command.Command.c_str() ) == 0 && Command.Module.length() == 0 )
                 {
-                    PyObject* FuncArgs = PyTuple_New( InputCommands.size() );
+                    PyObject* FuncArgs = nullptr;
                     PyObject* Return   = NULL;
                     auto      Path     = std::string();
 
+                    /* hold the GIL for everything python below, including
+                     * the tuple construction and the callable check */
+                    auto GilState = PyGILState_Ensure();
+
                     if ( Send )
                     {
+                        FuncArgs = PyTuple_New( InputCommands.size() );
                         if ( ! PyCallable_Check( ( PyObject* ) Command.Function ) )
                         {
-                            PyErr_SetString( PyExc_TypeError, "a callable is required" );
+                            Py_CLEAR( FuncArgs );
+                            DemonConsole->TaskError( "a callable is required for command " + InputCommands[ 0 ] );
+                            PyGILState_Release( GilState );
                             return false;
                         }
 
@@ -2567,11 +2602,6 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         // Set arguments of the functions
                         for ( u32 i = 1; i < InputCommands.size(); i++ )
                             PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
-
-                        /* hold the GIL for the whole result-handling
-                         * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
-                         * PyUnicode_AsUTF8), not just the call itself */
-                        auto GilState = PyGILState_Ensure();
 
                         Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
@@ -2637,8 +2667,9 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                         Py_CLEAR( Return );
                         Py_CLEAR( FuncArgs );
-                        PyGILState_Release( GilState );
                     }
+
+                    PyGILState_Release( GilState );
 
                     return true;
                 }
@@ -2674,7 +2705,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     if (!command.Anonymous)
                     {
-                        commandOutput.push_back("  " + command.Name + QString(std::string((TotalSize - command.Name.size()), ' ').c_str()) + "Command" + "      " + command.Description);
+                        commandOutput.push_back("  " + command.Name + QString(std::string((std::max( 0, TotalSize - (int)command.Name.size() )), ' ').c_str()) + "Command" + "      " + command.Description);
                     }
                 }
 
@@ -2685,7 +2716,7 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 {
                     if (command.Agent == AgentTypeName.toStdString())
                     {
-                        QString currentCommand = "  " + QString(command.Command.c_str()) + QString(std::string((TotalSize - command.Command.size()), ' ').c_str()) + "Command" + "      " + QString(command.Help.c_str());
+                        QString currentCommand = "  " + QString(command.Command.c_str()) + QString(std::string((std::max( 0, TotalSize - (int)command.Command.size() )), ' ').c_str()) + "Command" + "      " + QString(command.Help.c_str());
 
                         // Find the position to insert the current command in the sorted commandOutput vector
                         auto insertPosition = std::lower_bound(commandOutput.begin(), commandOutput.end(), currentCommand, compareQString);
@@ -2770,6 +2801,20 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     {
                         auto Value = QString();
 
+                        /* the argument array only holds what the operator
+                         * actually typed: never index past it (the
+                         * IsFilePath branch below would read out of bounds) */
+                        if (i >= (u32)ParamArray.size())
+                        {
+                            if (!command.Params[i].IsOptional)
+                            {
+                                CONSOLE_ERROR("Required parameter not given: " + command.Params[i].Name);
+                                return false;
+                            }
+                            CommandInput.insert(command.Params[i].Name.toStdString(), std::string());
+                            continue;
+                        }
+
                         if (command.Params[i].IsFilePath)
                         {
                             auto f = FileRead(ParamArray[i]);
@@ -2816,7 +2861,10 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                     {
                         if ( InputCommands[ 0 ].compare( Command.Command.c_str() ) == 0 )
                         {
-                            PyObject* FuncArgs = PyTuple_New( InputCommands.size() );
+                            /* hold the GIL for everything python below, including
+                             * the tuple construction and the callable check */
+                            auto      GilState = PyGILState_Ensure();
+                            PyObject* FuncArgs = nullptr;
                             PyObject* Return   = nullptr;
                             auto      Path     = std::string();
 
@@ -2824,9 +2872,12 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                             if ( Send )
                             {
+                                FuncArgs = PyTuple_New( InputCommands.size() );
                                 if ( ! PyCallable_Check( ( PyObject* ) Command.Function ) )
                                 {
-                                    PyErr_SetString( PyExc_TypeError, "a callable is required" );
+                                    Py_CLEAR( FuncArgs );
+                                    DemonConsole->TaskError( "a callable is required for command " + InputCommands[ 0 ] );
+                                    PyGILState_Release( GilState );
                                     return false;
                                 }
 
@@ -2843,11 +2894,6 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 // Set arguments of the functions
                                 for ( u32 i = 1; i < InputCommands.size(); i++ )
                                     PyTuple_SetItem( FuncArgs, i, PyUnicode_FromString( InputCommands[ i ].toStdString().c_str() ) );
-
-                                /* hold the GIL for the whole result-handling
-                                 * sequence below (PyErr_*, Py_CLEAR, Py_IsNone,
-                                 * PyUnicode_AsUTF8), not just the call itself */
-                                auto GilState = PyGILState_Ensure();
 
                                 Return = PyObject_CallObject( ( PyObject* ) Command.Function, FuncArgs );
 
@@ -2887,6 +2933,20 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     return false;
                                 }
 
+                                if ( ! Py_IS_TYPE( Return, &PyUnicode_Type ) )
+                                {
+                                    if ( Send )
+                                    {
+                                        PrintModuleCachedMessages();
+
+                                        DemonConsole->TaskError( "Failed to execute " + InputCommands[ 0 ] + ( InputCommands.size() > 1 ? " " + InputCommands[ 1 ] : QString() ) + ". Script return is invalid" );
+                                    }
+                                    Py_CLEAR( Return );
+                                    Py_CLEAR( FuncArgs );
+                                    PyGILState_Release( GilState );
+                                    return false;
+                                }
+
                                 TaskID = QString( PyUnicode_AsUTF8( Return ) );
 
                                 NewPackageCommand( Teamserver, Util::Packager::Body_t {
@@ -2902,8 +2962,9 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
 
                                 Py_CLEAR( Return );
                                 Py_CLEAR( FuncArgs );
-                                PyGILState_Release( GilState );
                             }
+
+                            PyGILState_Release( GilState );
 
                             return true;
                         }

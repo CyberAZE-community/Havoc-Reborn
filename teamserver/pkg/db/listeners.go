@@ -34,6 +34,7 @@ func (db *DB) ListenerAdd(Name, Protocol, Config string) error {
 	/* add the data to the listener table */
 	_, err = stmt.Exec(Name, Protocol, Config)
 	if err != nil {
+		stmt.Close()
 		return err
 	}
 

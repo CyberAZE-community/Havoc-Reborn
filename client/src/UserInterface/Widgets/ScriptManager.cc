@@ -203,7 +203,11 @@ void ScriptManager::menu_ScriptMenu( const QPoint &pos ) const
     if ( ! DemonSelected )
         return;
 
-    menuScripts->popup( tableLoadedScripts->horizontalHeader()->viewport()->mapToGlobal( pos ) );
+    /* make Reload/Remove (which use currentRow) act on the row under the
+     * cursor instead of whatever was left-clicked last */
+    tableLoadedScripts->selectRow( DemonSelected->row() );
+
+    menuScripts->popup( tableLoadedScripts->viewport()->mapToGlobal( pos ) );
 }
 
 void ScriptManager::ReloadScript() const

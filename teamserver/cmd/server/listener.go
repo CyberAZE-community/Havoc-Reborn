@@ -64,6 +64,13 @@ func (t *Teamserver) ListenerStart(ListenerType int, info any) error {
 
 		HTTPConfig.Start()
 
+		// Start() binds synchronously: if it returns with Active unset, the
+		// listener never served (bad config, failed certs, failed bind) and
+		// must not be registered
+		if ! HTTPConfig.Active.Load() {
+			return errors.New("failed to start http listener: " + config.Name)
+		}
+
 		ListenerConfig = HTTPConfig
 		ListenerName = config.Name
 
@@ -219,11 +226,17 @@ func (t *Teamserver) ListenerEdit(Type int, Config any) {
 		for i := range t.Listeners {
 
 			if t.Listeners[i].Name == Config.(handlers.HTTPConfig).Name {
-				t.Listeners[i].Config.(*handlers.HTTP).Config.UserAgent = Config.(handlers.HTTPConfig).UserAgent
-				t.Listeners[i].Config.(*handlers.HTTP).Config.Headers = Config.(handlers.HTTPConfig).Headers
-				t.Listeners[i].Config.(*handlers.HTTP).Config.Uris = Config.(handlers.HTTPConfig).Uris
-				t.Listeners[i].Config.(*handlers.HTTP).Config.Proxy = Config.(handlers.HTTPConfig).Proxy
-				t.Listeners[i].Config.(*handlers.HTTP).Config.BehindRedir = t.Profile.Config.Demon.TrustXForwardedFor
+				// swap the mutable config under the HTTP handler's own
+				// lock so in-flight request goroutines never read a torn
+				// slice header (M71)
+				http := t.Listeners[i].Config.(*handlers.HTTP)
+				http.ConfigMutex.Lock()
+				http.Config.UserAgent = Config.(handlers.HTTPConfig).UserAgent
+				http.Config.Headers = Config.(handlers.HTTPConfig).Headers
+				http.Config.Uris = Config.(handlers.HTTPConfig).Uris
+				http.Config.Proxy = Config.(handlers.HTTPConfig).Proxy
+				http.Config.BehindRedir = t.Profile.Config.Demon != nil && t.Profile.Config.Demon.TrustXForwardedFor
+				http.ConfigMutex.Unlock()
 			}
 
 		}
@@ -272,7 +285,7 @@ func (t *Teamserver) ListenerAdd(FromUser string, Type int, Config any) packager
 		Info["Proxy Password"] = Config.(*handlers.HTTP).Config.Proxy.Password
 
 		Info["Secure"] = Config.(*handlers.HTTP).Config.Secure
-		Info["Status"] = Config.(*handlers.HTTP).Active
+		Info["Status"] = Config.(*handlers.HTTP).Active.Load()
 
 		Info["Response Headers"] = strings.Join(Config.(*handlers.HTTP).Config.Response.Headers, "\r\n")
 
@@ -281,7 +294,7 @@ func (t *Teamserver) ListenerAdd(FromUser string, Type int, Config any) packager
 			Info["Secure"] = "true"
 		}
 
-		if Config.(*handlers.HTTP).Active {
+		if Config.(*handlers.HTTP).Active.Load() {
 			Info["Status"] = "Online"
 		} else {
 			Info["Status"] = "Offline"

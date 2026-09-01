@@ -2,8 +2,8 @@ package handlers
 
 import (
     "io"
+    "net"
     "net/http"
-    "strings"
 
     "Havoc/pkg/colors"
     "Havoc/pkg/logger"
@@ -46,7 +46,10 @@ func (e *External) Request(ctx *gin.Context) {
     logger.Debug(" - Exc2 Host : " + ctx.Request.Host)
     logger.Debug(" - Exc2 Body : \n" + hex.Dump(Body))
 
-    ExternalIP := strings.Split(ctx.Request.RemoteAddr, ":")[0]
+    ExternalIP, _, err := net.SplitHostPort(ctx.Request.RemoteAddr)
+    if err != nil {
+        ExternalIP = ctx.Request.RemoteAddr
+    }
 
     if Response, Success := parseAgentRequest(e.Teamserver, Body, ExternalIP); Success {
         _, err := ctx.Writer.Write(Response.Bytes())

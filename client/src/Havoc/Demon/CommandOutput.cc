@@ -49,6 +49,11 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
             Py_XDECREF( HavocX::callbackMessage );
             HavocX::callbackMessage = NULL;
 
+            /* don't leave a pending exception behind: it would make the
+             * next unrelated python call fail with a SystemError */
+            if ( PyErr_Occurred() )
+                PyErr_Clear();
+
             PyGILState_Release( GilState );
         }
         this->DemonCommandInstance->DemonConsole->AppendRaw( Output.toHtmlEscaped() );
@@ -69,6 +74,12 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
         else if ( Type.compare( "download" ) == 0 )
         {
             auto MiscDataInfo = JsonDocument[ "MiscData2" ].toString().split( ";" );
+
+            /* agent-controlled data: a value without the size field must not
+             * crash the operator client with an out-of-bounds list access */
+            if ( MiscDataInfo.size() < 2 )
+                return;
+
             auto Name         = Util::base64_decode_capped( MiscDataInfo[ 0 ].toLocal8Bit() );
             auto Size         = ( MiscDataInfo[ 1 ] );
 
@@ -109,6 +120,10 @@ void DispatchOutput::MessageOutput( QString JsonString, const QString& Date = ""
         else if ( Type.compare( "reconnect" ) == 0 )
         {
             auto Split = Data.split( ";" );
+
+            /* same as above: malformed agent data must not index out of bounds */
+            if ( Split.size() < 2 )
+                return;
 
             HavocX::Teamserver.TabSession->SessionGraphWidget->GraphPivotNodeReconnect( Split[ 0 ], Split[ 1 ] );
         }

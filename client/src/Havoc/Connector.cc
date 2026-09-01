@@ -44,6 +44,12 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
          * application's dbManager which is created unconditionally */
         if ( Packager == nullptr )
         {
+            /* error and disconnected can both fire for the same failed
+             * connect: only run the recovery-dialog flow once */
+            if ( RecoveryDialogShown )
+                return;
+            RecoveryDialogShown = true;
+
             MessageBox( "Connection error", "Couldn't connect to the teamserver: " + ErrorString, QMessageBox::Critical );
 
             auto Connect = new UserInterface::Dialogs::Connect;
@@ -90,6 +96,11 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
     QObject::connect( Socket, &QWebSocket::disconnected, this, [&]()
     {
+        /* the error handler already showed the recovery dialog and
+         * scheduled this Connector's deletion: don't stack a second one */
+        if ( RecoveryDialogShown )
+            return;
+
         /* a null TabSession means the session never got initialized (the
          * login failed): the server already explained why via the
          * InitConnection::Error box, so don't stack a generic
@@ -113,6 +124,24 @@ Connector::Connector( Util::ConnectionInfo* ConnectionInfo )
 
             HavocX::Teamserver.TabSession->deleteLater();
             HavocX::Teamserver.TabSession = nullptr;
+
+            /* drop the session bookkeeping too: it references widgets owned
+             * by the tab we just queued for deletion. release the python
+             * task callbacks first — nothing will ever complete those tasks */
+            if ( ! HavocX::Teamserver.Sessions.empty() )
+            {
+                auto GilState = PyGILState_Ensure();
+
+                for ( auto& Session : HavocX::Teamserver.Sessions )
+                {
+                    for ( auto& [TaskID, Callback] : Session.TaskIDToPythonCallbacks )
+                        Py_XDECREF( Callback );
+                }
+
+                PyGILState_Release( GilState );
+            }
+
+            HavocX::Teamserver.Sessions.clear();
 
             Page->deleteLater();
         }
@@ -165,6 +194,10 @@ bool Connector::Disconnect()
 Connector::~Connector() noexcept
 {
     delete this->Socket;
+
+    /* the Connector owns the heap-allocated ConnectionInfo it was
+     * constructed with (see Connect::StartDialog) */
+    delete this->Teamserver;
 }
 
 void Connector::SendLogin()

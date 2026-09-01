@@ -577,7 +577,15 @@ MapStrStr NewListener::Start( Util::ListenerItem Item, bool Edit )
             {
                 if ( listener.Name == Item.Protocol )
                 {
-                    auto ListenerConfiguration = json::parse( any_cast<Listener::Service>( Item.Info )[ "Info" ] );
+                    /* the stored Info blob is service-controlled: skip the
+                     * listener on malformed JSON instead of crashing */
+                    nlohmann::json ListenerConfiguration;
+                    try {
+                        ListenerConfiguration = json::parse( any_cast<Listener::Service>( Item.Info )[ "Info" ] );
+                    } catch ( const std::exception& e ) {
+                        spdlog::error( "Listener edit: bad stored JSON: {}", e.what() );
+                        continue;
+                    }
 
                     ComboPayload->setCurrentIndex( listener.Index + 1 );
 
@@ -758,11 +766,20 @@ auto NewListener::ListenerCustomAdd( QString Json ) -> bool
     if ( Json.isEmpty() )
         return false;
 
-    auto Listener = json::parse( Json.toStdString() );
+    /* Json comes from the Python/service side: malformed input must not
+     * abort with an exception */
+    nlohmann::json Listener;
+    try {
+        Listener = json::parse( Json.toStdString() );
+    } catch ( const std::exception& e ) {
+        spdlog::error( "ListenerCustomAdd: bad JSON: {}", e.what() );
+        return false;
+    }
     auto Page     = ( QWidget* )     nullptr;
     auto Layout   = ( QFormLayout* ) nullptr;
     auto Service  = ServiceListener();
 
+    try {
     Page    = new QWidget;
     Layout  = new QFormLayout( Page );
     Service = {
@@ -795,6 +812,11 @@ auto NewListener::ListenerCustomAdd( QString Json ) -> bool
                 { "Line",     ( uint64_t ) Line  },
             } );
         }
+    }
+    } catch ( const std::exception& e ) {
+        spdlog::error( "ListenerCustomAdd: malformed listener JSON: {}", e.what() );
+        delete Page;
+        return false;
     }
 
     ServiceListeners.push_back( Service );

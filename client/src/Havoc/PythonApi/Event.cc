@@ -104,7 +104,12 @@ PyObject* EventClass_OnNewSession( PPyEvents self, PyObject *args )
         return NULL;
     }
 
-    HavocX::Teamserver.RegisteredCallbacks.push_back(Function);
+    /* keep the callable alive for as long as it is registered: the args
+     * tuple owns the only reference and it dies when this call returns,
+     * leaving a dangling pointer that the package dispatch calls on every
+     * matching event */
+    Py_INCREF( Function );
+    HavocX::Teamserver.RegisteredCallbacks.push_back( Function );
 
     Py_RETURN_NONE;
 }

@@ -26,8 +26,8 @@
 #define ERROR_INJECT_PROC_PAYLOAD_ARCH_DONT_MATCH_X86_TO_X64   0x1002
 #define ERROR_INJECT_FAILED_TO_SPAWN_TARGET_PROCESS            0x1003
 
-DWORD   Rva2Offset(DWORD dwRva, UINT_PTR uiBaseAddress);
-DWORD   GetReflectiveLoaderOffset( PVOID lpReflectiveDllBuffer );
-DWORD   GetPeArch( PVOID PeBytes );
+DWORD   Rva2Offset(DWORD dwRva, UINT_PTR uiBaseAddress, SIZE_T uiSize);
+DWORD   GetReflectiveLoaderOffset( PVOID lpReflectiveDllBuffer, SIZE_T Size );
+DWORD   GetPeArch( PVOID PeBytes, SIZE_T Size );
 
 #endif

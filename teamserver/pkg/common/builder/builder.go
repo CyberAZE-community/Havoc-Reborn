@@ -289,8 +289,16 @@ func (b *Builder) Build() bool {
 		if err != nil {
 			if !b.silent {
 				b.SendConsoleMessage("Error", fmt.Sprintf("failed to resolve x64 compiler path: %v", err))
-				return false
 			}
+			return false
+		}
+		// the compiler path is a teamserver-settings value interpolated into
+		// the `sh -c` compile command: refuse anything that could break out
+		if !isSafeShellPath(abs) {
+			if !b.silent {
+				b.SendConsoleMessage("Error", "x64 compiler path contains unsupported characters")
+			}
+			return false
 		}
 		b.compilerOptions.Config.Compiler64 = abs
 
@@ -301,12 +309,25 @@ func (b *Builder) Build() bool {
 		if err != nil {
 			if !b.silent {
 				b.SendConsoleMessage("Error", fmt.Sprintf("failed to resolve x86 compiler path: %v", err))
-				return false
 			}
+			return false
+		}
+		if !isSafeShellPath(abs) {
+			if !b.silent {
+				b.SendConsoleMessage("Error", "x86 compiler path contains unsupported characters")
+			}
+			return false
 		}
 		b.compilerOptions.Config.Compiler86 = abs
 
 		CompileCommand += "\"" + b.compilerOptions.Config.Compiler86 + "\" "
+	}
+
+	if !isSafeShellPath(b.compilerOptions.Config.Nasm) {
+		if !b.silent {
+			b.SendConsoleMessage("Error", "nasm path contains unsupported characters")
+		}
+		return false
 	}
 
 	// add sources
@@ -325,9 +346,9 @@ func (b *Builder) Build() bool {
 					AsmObj = b.CompileDir + utils.GenerateID(10) + ".o"
 					var AsmCompile string
 					if b.config.Arch == ARCHITECTURE_X64 {
-						AsmCompile = fmt.Sprintf("%s -f win64 %s -o %s", b.compilerOptions.Config.Nasm, FilePath, AsmObj)
+						AsmCompile = fmt.Sprintf("%s -f win64 %s -o %s", "\""+b.compilerOptions.Config.Nasm+"\"", FilePath, AsmObj)
 					} else {
-						AsmCompile = fmt.Sprintf("%s -f win32 %s -o %s", b.compilerOptions.Config.Nasm, FilePath, AsmObj)
+						AsmCompile = fmt.Sprintf("%s -f win32 %s -o %s", "\""+b.compilerOptions.Config.Nasm+"\"", FilePath, AsmObj)
 					}
 					logger.Debug(AsmCompile)
 					b.FilesCreated = append(b.FilesCreated, AsmObj)
@@ -646,7 +667,10 @@ func (b *Builder) PatchConfig() ([]byte, error) {
 	DemonConfig.AddInt(ConfigSleep)
 	DemonConfig.AddInt(ConfigJitter)
 
-	if Injection := b.config.Config["Injection"].(map[string]any); len(Injection) > 0 {
+	// the config comes from the operator as raw json: the "Injection" key can
+	// be missing or have the wrong type entirely, so never assert blindly
+	Injection, InjectionOk := b.config.Config["Injection"].(map[string]any)
+	if InjectionOk && len(Injection) > 0 {
 
 		if val, ok := Injection["Alloc"].(string); ok && len(val) > 0 {
 			switch val {
@@ -973,12 +997,15 @@ func (b *Builder) PatchConfig() ([]byte, error) {
 				DemonConfig.AddWString("Content-type: */*")
 			}
 		} else {
+			// Copy the listener's header list: Config.Config points at the
+			// live listener configuration and must not be mutated here.
+			Headers := Config.Config.Headers
 			if len(Config.Config.HostHeader) > 0 {
-				Config.Config.Headers = append(Config.Config.Headers, "Host: "+Config.Config.HostHeader)
+				Headers = append(append([]string{}, Config.Config.Headers...), "Host: "+Config.Config.HostHeader)
 			}
 
-			DemonConfig.AddInt(len(Config.Config.Headers))
-			for _, headers := range Config.Config.Headers {
+			DemonConfig.AddInt(len(Headers))
+			for _, headers := range Headers {
 				logger.Debug(headers)
 				DemonConfig.AddWString(headers)
 			}
@@ -1147,6 +1174,23 @@ func (b *Builder) DeletePayload() {
 func isSafeServiceName(s string) bool {
 	for _, r := range s {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '.' || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// isSafeShellPath reports whether s only contains characters that are safe to
+// embed (double-quoted) into the shell compile command: no quotes, shell
+// metacharacters or control characters. Applies to toolchain paths from the
+// teamserver settings (Compiler64/86, Nasm).
+func isSafeShellPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' || r == '.' || r == '-' || r == '_' || r == '/' || r == '\\' || r == ':' {
 			continue
 		}
 		return false

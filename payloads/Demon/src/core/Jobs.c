@@ -22,6 +22,8 @@ VOID JobAdd( UINT32 RequestID, DWORD JobID, SHORT Type, SHORT State, HANDLE Hand
     PJOB_DATA Job     = NULL;
 
     Job = Instance->Win32.LocalAlloc( LPTR, sizeof( JOB_DATA ) );
+    if ( ! Job )
+        return;
 
     // fill the Job info and insert it into our linked list
     Job->RequestID = RequestID;

@@ -125,7 +125,9 @@ func (a *AgentService) SendResponse(AgentInfo any, Header agent.Header) []byte {
     a.client.Responses[randID] = make(chan []byte, 1)
     a.client.RespMtx.Unlock()
 
+    // bound each write so a stalled peer can't pin the client mutex (M80)
     a.client.Mutex.Lock()
+    _ = a.client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
     err := a.client.Conn.WriteJSON(AgentResponse)
     a.client.Mutex.Unlock()
 
@@ -171,7 +173,9 @@ func (a *AgentService) SendAgentBuildRequest(ClientID string, Config map[string]
         },
     }
 
+    // bound each write so a stalled peer can't pin the client mutex (M80)
     a.client.Mutex.Lock()
+    _ = a.client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
     err := a.client.Conn.WriteJSON(AgentResponse)
     a.client.Mutex.Unlock()
 

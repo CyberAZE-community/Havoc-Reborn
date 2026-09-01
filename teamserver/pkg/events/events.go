@@ -93,6 +93,11 @@ func SendProfile(profile *profile.Profile) packager.Package {
 		err       error
 	)
 
+	if profile.Config.Demon == nil {
+		logger.DebugError("profile has no Demon block: refusing to send an empty agent profile")
+		return packager.Package{}
+	}
+
 	JsonBytes, err = json.Marshal(*profile.Config.Demon)
 	if err != nil {
 		logger.DebugError("json.Marshal Error: " + err.Error())

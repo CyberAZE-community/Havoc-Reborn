@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"context"
+	"crypto/tls"
 	_ "embed"
 	//"encoding/hex"
 	"io"
@@ -100,7 +102,18 @@ func (h *HTTP) request(ctx *gin.Context) {
 		logger.Debug("Error while reading request: " + err.Error())
 	}
 
-	if h.Config.BehindRedir {
+	// snapshot the mutable listener config under the read lock: ListenerEdit
+	// swaps these fields while request goroutines read them (M71)
+	h.ConfigMutex.RLock()
+	ProfileHeaders := h.Config.Headers
+	ProfileHostHeader := h.Config.HostHeader
+	ProfileUris := h.Config.Uris
+	ProfileUserAgent := h.Config.UserAgent
+	ProfileResponseHeaders := h.Config.Response.Headers
+	ProfileBehindRedir := h.Config.BehindRedir
+	h.ConfigMutex.RUnlock()
+
+	if ProfileBehindRedir {
 		// The X-Forwarded-For header is only trustworthy if the redirector
 		// in front of this listener sets/overwrites it. Validate the value
 		// and fall back to the peer address when it is not a parseable IP.
@@ -146,7 +159,7 @@ func (h *HTTP) request(ctx *gin.Context) {
 	// check that the headers defined on the profile are present
 	valid := true
 	IgnoreHeaders := [2]string{"Connection", "Accept-Encoding"}
-	for _, Header := range h.Config.Headers {
+	for _, Header := range ProfileHeaders {
 		NameValue := strings.Split(Header, ": ")
 		if len(NameValue) > 1 {
 			ignore := false
@@ -167,15 +180,15 @@ func (h *HTTP) request(ctx *gin.Context) {
 		}
 	}
 
-	if len(h.Config.HostHeader) > 0 {
+	if len(ProfileHostHeader) > 0 {
 		// the Host header may carry a port (host:port); compare without it
 		var RequestHost = ctx.Request.Host
 		if host, _, err := net.SplitHostPort(RequestHost); err == nil {
 			RequestHost = host
 		}
 
-		if strings.ToLower(RequestHost) != strings.ToLower(h.Config.HostHeader) &&
-			strings.ToLower(ctx.Request.Header.Get("X-Forwarded-Host")) != strings.ToLower(h.Config.HostHeader) {
+		if strings.ToLower(RequestHost) != strings.ToLower(ProfileHostHeader) &&
+			strings.ToLower(ctx.Request.Header.Get("X-Forwarded-Host")) != strings.ToLower(ProfileHostHeader) {
 			MissingHdr = "Host: " + ctx.Request.Host + "; X-Forwarded-Host: " + ctx.Request.Header.Get("X-Forwarded-Host")
 			valid = false
 		}
@@ -188,9 +201,9 @@ func (h *HTTP) request(ctx *gin.Context) {
 	}
 
 	// check that the URI is defined on the profile
-	if len(h.Config.Uris) > 0 && ! (len(h.Config.Uris) == 1 && h.Config.Uris[0] == "") {
+	if len(ProfileUris) > 0 && ! (len(ProfileUris) == 1 && ProfileUris[0] == "") {
 		valid = false
-		for _, Uri := range h.Config.Uris {
+		for _, Uri := range ProfileUris {
 			if ctx.Request.RequestURI == Uri {
 				valid = true
 				break
@@ -205,8 +218,8 @@ func (h *HTTP) request(ctx *gin.Context) {
 	}
 
 	// check that the User-Agent is valid
-	if h.Config.UserAgent != "" {
-		if h.Config.UserAgent != ctx.Request.UserAgent() {
+	if ProfileUserAgent != "" {
+		if ProfileUserAgent != ctx.Request.UserAgent() {
 			logger.Warn(fmt.Sprintf("got a request with an invalid user agent: %s", ctx.Request.UserAgent()))
 			h.fake404(ctx)
 			return
@@ -217,7 +230,7 @@ func (h *HTTP) request(ctx *gin.Context) {
 	//       the value might change depending
 	//       on the redirector setup
 
-	for _, Header := range h.Config.Response.Headers {
+	for _, Header := range ProfileResponseHeaders {
 		var hdr = strings.Split(Header, ":")
 		if len(hdr) > 1 {
 			ctx.Header(hdr[0], hdr[1])
@@ -251,11 +264,44 @@ func (h *HTTP) Start() {
 
 	h.GinEngine.POST("/*endpoint", h.request)
 	h.GinEngine.GET("/*endpoint", h.fake404)
-	h.Active = true
+	h.Active.Store(true)
 
 	if h.Config.Secure {
 		// TODO: only generate certs if h.Config.Cert is empty
 		if h.generateCertFiles() {
+			var (
+				CertPath = h.TLS.CertPath
+				KeyPath  = h.TLS.KeyPath
+			)
+
+			if h.Config.Cert.Cert != "" && h.Config.Cert.Key != "" {
+				CertPath = h.Config.Cert.Cert
+				KeyPath = h.Config.Cert.Key
+			}
+
+			// validate the certificate pair synchronously: ServeTLS loads it
+			// lazily inside the serve goroutine, and a bad cert would leave a
+			// registered listener that never actually serves
+			if _, err := tls.LoadX509KeyPair(CertPath, KeyPath); err != nil {
+				logger.Error("Couldn't start HTTPs handler: " + err.Error())
+				h.Active.Store(false)
+				return
+			}
+
+			h.Server = &http.Server{
+				Addr:    common.GetInterfaceIpv4Addr(h.Config.HostBind) + ":" + h.Config.PortBind,
+				Handler: h.GinEngine,
+			}
+
+			// bind synchronously: a failed bind must be caught before Start()
+			// returns, otherwise listener registration races the bind result
+			listener, err := net.Listen("tcp", h.Server.Addr)
+			if err != nil {
+				logger.Error("Couldn't start HTTPs handler: " + err.Error())
+				h.Active.Store(false)
+				return
+			}
+
 			logger.Info("Started \"" + colors.Green(h.Config.Name) + "\" listener: " + colors.BlueUnderline("https://"+common.GetInterfaceIpv4Addr(h.Config.HostBind)+":"+h.Config.PortBind))
 
 			pk := h.Teamserver.ListenerAdd("", LISTENER_HTTP, h)
@@ -263,36 +309,36 @@ func (h *HTTP) Start() {
 			h.Teamserver.EventBroadcast("", pk)
 
 			go func() {
-				var (
-					CertPath = h.TLS.CertPath
-					KeyPath  = h.TLS.KeyPath
-				)
-
-				h.Server = &http.Server{
-					Addr:    common.GetInterfaceIpv4Addr(h.Config.HostBind) + ":" + h.Config.PortBind,
-					Handler: h.GinEngine,
-				}
-
-				if h.Config.Cert.Cert != "" && h.Config.Cert.Key != "" {
-					CertPath = h.Config.Cert.Cert
-					KeyPath = h.Config.Cert.Key
-				}
-
-				err := h.Server.ListenAndServeTLS(CertPath, KeyPath)
+				err := h.Server.ServeTLS(listener, CertPath, KeyPath)
 				if err != nil {
 					if err == http.ErrServerClosed {
-						h.Active = false
+						h.Active.Store(false)
 					} else {
 						logger.Error("Couldn't start HTTPs handler: " + err.Error())
-						h.Active = false
+						h.Active.Store(false)
 						h.Teamserver.EventListenerError(h.Config.Name, err)
 					}
 				}
 			}()
 		} else {
 			logger.Error("Failed to generate server tls certifications")
+			h.Active.Store(false)
 		}
 	} else {
+		h.Server = &http.Server{
+			Addr:    common.GetInterfaceIpv4Addr(h.Config.HostBind) + ":" + h.Config.PortBind,
+			Handler: h.GinEngine,
+		}
+
+		// bind synchronously: a failed bind must be caught before Start()
+		// returns, otherwise listener registration races the bind result
+		listener, err := net.Listen("tcp", h.Server.Addr)
+		if err != nil {
+			logger.Error("Couldn't start HTTP handler: " + err.Error())
+			h.Active.Store(false)
+			return
+		}
+
 		logger.Info("Started \"" + colors.Green(h.Config.Name) + "\" listener: " + colors.BlueUnderline("http://"+common.GetInterfaceIpv4Addr(h.Config.HostBind)+":"+h.Config.PortBind))
 
 		pk := h.Teamserver.ListenerAdd("", LISTENER_HTTP, h)
@@ -300,31 +346,28 @@ func (h *HTTP) Start() {
 		h.Teamserver.EventBroadcast("", pk)
 
 		go func() {
-			h.Server = &http.Server{
-				Addr:    common.GetInterfaceIpv4Addr(h.Config.HostBind) + ":" + h.Config.PortBind,
-				Handler: h.GinEngine,
-			}
-
-			err := h.Server.ListenAndServe()
+			err := h.Server.Serve(listener)
 			if err != nil {
-				logger.Error("Couldn't start HTTP handler: " + err.Error())
-				h.Active = false
-				h.Teamserver.EventListenerError(h.Config.Name, err)
+				if err == http.ErrServerClosed {
+					h.Active.Store(false)
+				} else {
+					logger.Error("Couldn't start HTTP handler: " + err.Error())
+					h.Active.Store(false)
+					h.Teamserver.EventListenerError(h.Config.Name, err)
+				}
 			}
 		}()
 	}
 }
 
 func (h *HTTP) Stop() error {
+	if h.Server == nil {
+		return errors.New("http listener is not running")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := h.Server.Shutdown(ctx); err != nil {
 		return err
-	}
-	// catching ctx.Done(). timeout of 5 seconds.
-	select {
-	case <-ctx.Done():
-		logger.Debug("timeout of 5 seconds.")
 	}
 
 	return nil

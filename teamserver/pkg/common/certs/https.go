@@ -213,7 +213,7 @@ func pemBlockForKey(priv interface{}) *pem.Block {
     }
 }
 
-func generateCertificate(caType string, subject pkix.Name, isCA bool, isClient bool, privateKey interface{}) ([]byte, []byte) {
+func generateCertificate(caType string, subject pkix.Name, isCA bool, isClient bool, privateKey interface{}) ([]byte, []byte, error) {
 
     // Valid times, subtract random days from .Now()
     notBefore := time.Now()
@@ -290,8 +290,10 @@ func generateCertificate(caType string, subject pkix.Name, isCA bool, isClient b
     }
 
     if certErr != nil {
-        // We maybe don't want this to be fatal, but it should basically never happen afaik
-        logger.Fatal(fmt.Sprintf("Failed to create certificate: %s", certErr))
+        // don't take the whole teamserver down (os.Exit); propagate the
+        // error to the caller instead
+        logger.Error(fmt.Sprintf("Failed to create certificate: %s", certErr))
+        return nil, nil, certErr
     }
 
     // Encode certificate and key
@@ -301,7 +303,7 @@ func generateCertificate(caType string, subject pkix.Name, isCA bool, isClient b
     keyOut := bytes.NewBuffer([]byte{})
     pem.Encode(keyOut, pemBlockForKey(privateKey))
 
-    return certOut.Bytes(), keyOut.Bytes()
+    return certOut.Bytes(), keyOut.Bytes(), nil
 }
 
 // HTTPSGenerateRSACertificate - Generate a server certificate signed with a given CA
@@ -318,7 +320,7 @@ func HTTPSGenerateRSACertificate(host string) ([]byte, []byte, error) {
         return nil, nil, err
     }
     subject := randomSubject(host)
-    cert, key := generateCertificate(HTTPSCA, (*subject), true, false, privateKey)
+    cert, key, err := generateCertificate(HTTPSCA, (*subject), true, false, privateKey)
     // err = saveCertificate(HTTPSCA, RSAKey, host, cert, key)
     return cert, key, err
 }

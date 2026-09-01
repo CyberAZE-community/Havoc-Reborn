@@ -283,7 +283,9 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
     PVOID VehHandle      = NULL;
     PCHAR SymbolName     = NULL;
     BOOL  Success        = FALSE;
+    BOOL  InlineName     = FALSE;
     ULONG FunctionLength = StringLengthA( Function );
+    ULONG CompareLength  = 0;
     ULONG Protection     = 0;
     ULONG BitMask        = 0;
 
@@ -360,7 +362,9 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
     // look for the "go" function
     for ( DWORD SymCounter = 0; SymCounter < Coffee->Header->NumberOfSymbols; SymCounter++ )
     {
-        if ( Coffee->Symbol[ SymCounter ].First.Value[ 0 ] != 0 )
+        InlineName = Coffee->Symbol[ SymCounter ].First.Value[ 0 ] != 0;
+
+        if ( InlineName )
             SymbolName = Coffee->Symbol[ SymCounter ].First.Name;
         else
             SymbolName = ( ( PCHAR ) ( Coffee->Symbol + Coffee->Header->NumberOfSymbols ) ) + Coffee->Symbol[ SymCounter ].First.Value[ 1 ];
@@ -371,8 +375,27 @@ BOOL CoffeeExecuteFunction( PCOFFEE Coffee, PCHAR Function, PVOID Argument, SIZE
             SymbolName++;
 #endif
 
-        if ( MemCompare( SymbolName, Function, FunctionLength ) == 0 )
+        /* inline symbol names occupy 8 bytes and may not be NUL terminated:
+         * clamp the compare so a long entry name can't read past the
+         * symbol entry */
+        CompareLength = ( InlineName && FunctionLength > 8 ) ? 8 : FunctionLength;
+
+        if ( CompareLength != FunctionLength )
+            continue;
+
+        if ( MemCompare( SymbolName, Function, CompareLength ) == 0 &&
+             ( ! InlineName || FunctionLength == 8 || SymbolName[ FunctionLength ] == 0 ) )
         {
+            /* section numbers are one-based and come from the BOF: reject
+             * undefined (0) and out-of-range values before indexing SecMap */
+            if ( Coffee->Symbol[ SymCounter ].SectionNumber == 0 ||
+                 Coffee->Symbol[ SymCounter ].SectionNumber > Coffee->Header->NumberOfSections )
+            {
+                PRINTF( "Entry symbol section number %d out of bounds (sections: %d)\n", Coffee->Symbol[ SymCounter ].SectionNumber, Coffee->Header->NumberOfSections )
+                Success = FALSE;
+                goto END;
+            }
+
             CoffeeMain = ( Coffee->SecMap[ Coffee->Symbol[ SymCounter ].SectionNumber - 1 ].Ptr + Coffee->Symbol[ SymCounter ].Value );
             break;
         }
@@ -443,7 +466,7 @@ VOID CoffeeCleanup( PCOFFEE Coffee )
         MemSet( Coffee->ImageBase, 0, Coffee->BofSize );
 
     Pointer = Coffee->ImageBase;
-    Size    = Coffee->BofSize;
+    Size    = 0; /* MEM_RELEASE requires Size to be zero when freeing the whole allocation */
     if ( ! NT_SUCCESS( ( NtStatus = SysNtFreeVirtualMemory( NtCurrentProcess(), &Pointer, &Size, MEM_RELEASE ) ) ) )
     {
         NtSetLastError( Instance->Win32.RtlNtStatusToDosError( NtStatus ) );
@@ -719,8 +742,13 @@ SIZE_T CoffeeGetFunMapSize( PCOFFEE Coffee )
                 SymbolName = ( ( PCHAR ) ( Coffee->Symbol + Coffee->Header->NumberOfSymbols ) ) + Symbol->First.Value[ 1 ];
             }
 
-            // if the symbol starts with __imp_, count it
-            if ( HashEx( SymbolName, COFF_PREP_SYMBOL_SIZE, FALSE ) == COFF_PREP_SYMBOL )
+            /* count every symbol that CoffeeProcessSymbol resolves to a
+             * non-null pointer: the __imp_ imports and the Instance symbol.
+             * both consume a FunMap slot in CoffeeProcessSections; counting
+             * only the imports under-allocates the FunMap and a crafted
+             * relocation then writes past the end of the BOF allocation */
+            if ( HashEx( SymbolName, COFF_PREP_SYMBOL_SIZE, FALSE ) == COFF_PREP_SYMBOL ||
+                 HashStringA( SymbolName ) == COFF_INSTANCE )
                 NumberOfFuncs++;
 
             Coffee->Reloc = C_PTR( U_PTR( Coffee->Reloc ) + sizeof( COFF_RELOC ) );
@@ -733,23 +761,22 @@ SIZE_T CoffeeGetFunMapSize( PCOFFEE Coffee )
 VOID RemoveCoffeeFromInstance( PCOFFEE Coffee )
 {
     PCOFFEE Entry = Instance->Coffees;
-    PCOFFEE Last  = Entry;
+    PCOFFEE Last  = NULL;
 
     if ( ! Coffee )
         return;
 
-    if ( Entry && Entry->RequestID == Coffee->RequestID )
-    {
-        Instance->Coffees = Entry->Next;
-        return;
-    }
-
-    Entry = Entry->Next;
+    /* match by pointer: two BOFs can share a RequestID, and the caller
+     * removes the entry right before freeing it */
     while ( Entry )
     {
-        if ( Entry->RequestID == Coffee->RequestID )
+        if ( Entry == Coffee )
         {
-            Last->Next = Entry->Next;
+            if ( Last )
+                Last->Next = Entry->Next;
+            else
+                Instance->Coffees = Entry->Next;
+
             return;
         }
 
@@ -760,11 +787,92 @@ VOID RemoveCoffeeFromInstance( PCOFFEE Coffee )
     PUTS( "Coffe entry was not found" )
 }
 
-VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, PVOID ArgData, SIZE_T ArgSize, UINT32 RequestID )
+// validate every offset the (untrusted) COFF header provides against the
+// actual size of the object file buffer. returns FALSE when anything points
+// outside the buffer, before it gets dereferenced or copied into memory.
+BOOL CoffeeValidateBounds( PCOFFEE Coffee, SIZE_T CoffeeDataSize )
 {
-    PCOFFEE Coffee   = NULL;
-    PVOID   NextBase = NULL;
-    BOOL    Success  = FALSE;
+    PCOFF_SECTION Section = NULL;
+    PCHAR         StrTab  = NULL;
+    PCHAR         Name    = NULL;
+    PCHAR         End     = NULL;
+    SIZE_T        SymEnd  = 0;
+    UINT32        StrSize = 0;
+
+    if ( CoffeeDataSize < sizeof( COFF_FILE_HEADER ) )
+        return FALSE;
+
+    /* the section table must fit inside the buffer */
+    if ( Coffee->Header->NumberOfSections > ( CoffeeDataSize - sizeof( COFF_FILE_HEADER ) ) / sizeof( COFF_SECTION ) )
+        return FALSE;
+
+    for ( UINT16 SecCnt = 0; SecCnt < Coffee->Header->NumberOfSections; SecCnt++ )
+    {
+        Section = C_PTR( U_PTR( Coffee->Data ) + sizeof( COFF_FILE_HEADER ) + U_PTR( sizeof( COFF_SECTION ) * SecCnt ) );
+
+        /* section raw data must fit. the subtraction form cannot wrap
+         * around the UINT32 fields the way an addition could */
+        if ( Section->SizeOfRawData > CoffeeDataSize || Section->PointerToRawData > CoffeeDataSize - Section->SizeOfRawData )
+            return FALSE;
+
+        if ( Section->NumberOfRelocations > 0 )
+        {
+            if ( Section->PointerToRelocations > CoffeeDataSize ||
+                 Section->NumberOfRelocations > ( CoffeeDataSize - Section->PointerToRelocations ) / sizeof( COFF_RELOC ) )
+                return FALSE;
+        }
+    }
+
+    if ( Coffee->Header->NumberOfSymbols == 0 )
+        return Coffee->Header->PointerToSymbolTable == 0;
+
+    /* the symbol table and the string table size field must fit */
+    if ( Coffee->Header->PointerToSymbolTable == 0 ||
+         Coffee->Header->PointerToSymbolTable > CoffeeDataSize ||
+         Coffee->Header->NumberOfSymbols > ( CoffeeDataSize - Coffee->Header->PointerToSymbolTable ) / sizeof( COFF_SYMBOL ) )
+        return FALSE;
+
+    SymEnd = U_PTR( Coffee->Header->PointerToSymbolTable ) + U_PTR( Coffee->Header->NumberOfSymbols ) * sizeof( COFF_SYMBOL );
+
+    if ( CoffeeDataSize - SymEnd < sizeof( UINT32 ) )
+        return FALSE;
+
+    StrSize = * ( PUINT32 ) C_PTR( U_PTR( Coffee->Data ) + SymEnd );
+
+    if ( StrSize < sizeof( UINT32 ) || StrSize > CoffeeDataSize - SymEnd )
+        return FALSE;
+
+    /* every string-table symbol name must be NUL terminated inside the
+     * buffer, otherwise the name copies scan past the allocation */
+    StrTab = C_PTR( U_PTR( Coffee->Data ) + SymEnd );
+    End    = C_PTR( U_PTR( Coffee->Data ) + CoffeeDataSize );
+
+    for ( DWORD SymCnt = 0; SymCnt < Coffee->Header->NumberOfSymbols; SymCnt++ )
+    {
+        if ( Coffee->Symbol[ SymCnt ].First.Value[ 0 ] != 0 )
+            continue;
+
+        if ( Coffee->Symbol[ SymCnt ].First.Value[ 1 ] >= StrSize )
+            return FALSE;
+
+        Name = StrTab + Coffee->Symbol[ SymCnt ].First.Value[ 1 ];
+
+        while ( Name < End && *Name )
+            Name++;
+
+        if ( Name == End )
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, SIZE_T CoffeeDataSize, PVOID ArgData, SIZE_T ArgSize, UINT32 RequestID )
+{
+    PCOFFEE Coffee    = NULL;
+    PVOID   NextBase  = NULL;
+    BOOL    Success   = FALSE;
+    SIZE_T  MaxBofSize = 0;
 
     PRINTF( "[EntryName: %s] [CoffeeData: %p] [ArgData: %p] [ArgSize: %ld]\n", EntryName, CoffeeData, ArgData, ArgSize )
 
@@ -782,12 +890,27 @@ VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, PVOID ArgData, SIZE_T ArgSize
      */
 
     Coffee            = Instance->Win32.LocalAlloc( LPTR, sizeof( COFFEE ) );
+    if ( ! Coffee )
+    {
+        PUTS( "[!] Failed to allocate COFFEE instance" );
+        goto END;
+    }
+
     Coffee->Data      = CoffeeData;
     Coffee->Header    = Coffee->Data;
     Coffee->Symbol    = C_PTR( U_PTR( Coffee->Data ) + Coffee->Header->PointerToSymbolTable );
     Coffee->RequestID = RequestID;
     Coffee->Next      = Instance->Coffees;
     Instance->Coffees  = Coffee;
+
+    /* every header offset below is taken from the BOF bytes (tasking
+     * controlled): reject anything that walks outside the buffer before
+     * the section copy, the relocation walk or the symbol lookups run */
+    if ( ! CoffeeValidateBounds( Coffee, CoffeeDataSize ) )
+    {
+        PUTS( "[!] The BOF is malformed: header offsets out of bounds" );
+        goto END;
+    }
 
 #if _WIN64
 
@@ -826,6 +949,17 @@ VOID CoffeeLdr( PCHAR EntryName, PVOID CoffeeData, PVOID ArgData, SIZE_T ArgSize
 
     // at the bottom of the BOF, store the Function map, to ensure all reloc offsets are below 4K
     Coffee->BofSize += Coffee->FunMapSize;
+
+    /* cap the cumulative allocation: with every section's raw size already
+     * bounded by the input buffer, the summed (page aligned) BOF size can
+     * never exceed this. a larger or wrapped value means the section table
+     * is hostile. */
+    MaxBofSize = ( ( SIZE_T ) CoffeeDataSize + 0x1000 ) * Coffee->Header->NumberOfSections + Coffee->FunMapSize;
+    if ( Coffee->BofSize > MaxBofSize || Coffee->BofSize < Coffee->FunMapSize )
+    {
+        PUTS( "[!] The BOF is too large" );
+        goto END;
+    }
 
     Coffee->ImageBase = MmVirtualAlloc( DX_MEM_DEFAULT, NtCurrentProcess(), Coffee->BofSize, PAGE_READWRITE );
     if ( ! Coffee->ImageBase )
@@ -881,7 +1015,9 @@ END:
 
     if ( Coffee )
     {
-        MemSet( Coffee, 0, sizeof( Coffee ) );
+        /* sizeof(COFFEE), not sizeof(Coffee): the pointer-sized wipe left
+         * most of the struct intact after the free */
+        MemSet( Coffee, 0, sizeof( COFFEE ) );
         Instance->Win32.LocalFree( Coffee );
         Coffee = NULL;
     }
@@ -892,7 +1028,7 @@ VOID CoffeeRunnerThread( PCOFFEE_PARAMS Param )
     if ( ! Param->EntryName || ! Param->CoffeeData )
         goto ExitThread;
 
-    CoffeeLdr( Param->EntryName, Param->CoffeeData, Param->ArgData, Param->ArgSize, Param->RequestID );
+    CoffeeLdr( Param->EntryName, Param->CoffeeData, Param->CoffeeDataSize, Param->ArgData, Param->ArgSize, Param->RequestID );
 
 ExitThread:
     if ( Param )

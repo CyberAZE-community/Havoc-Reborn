@@ -149,6 +149,10 @@ type Teamserver struct {
 	// ListenersMutex guards Listeners add/remove/iterate
 	ListenersMutex sync.RWMutex
 
+	// EndpointsMutex guards Endpoints add/remove/iterate (the gin route
+	// handler iterates while service agents can add/remove at runtime)
+	EndpointsMutex sync.RWMutex
+
 	Endpoints []*Endpoint
 
 	Settings struct {

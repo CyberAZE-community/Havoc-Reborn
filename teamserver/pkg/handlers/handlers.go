@@ -5,6 +5,7 @@ import (
 	//"encoding/hex"
 	"fmt"
 	"math/bits"
+	"strconv"
 
 	"Havoc/pkg/agent"
 	"Havoc/pkg/common/packer"
@@ -70,6 +71,11 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 
 		/* get our agent instance based on the agent id */
 		Agent = Teamserver.AgentInstance(Header.AgentID)
+		if Agent == nil {
+			// the agent was removed between the exist check and the
+			// instance lookup; treat the request as unknown
+			return Response, false
+		}
 		Agent.UpdateLastCallback(Teamserver)
 
 		// while we can read a command and request id, parse new packages
@@ -153,11 +159,30 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 
 						if job[j].Data[0] == agent.DEMON_PIVOT_SMB_COMMAND {
 
+							if len(job[j].Data) < 3 {
+								logger.Error("pivot job with truncated data fields, skipping")
+								break
+							}
+
 							var (
-								TaskBuffer    = job[j].Data[2].([]byte)
-								PivotAgentID  = int(job[j].Data[1].(uint32))
+								TaskBuffer    []byte
+								PivotAgentID  int
 								PivotInstance *agent.Agent
 							)
+
+							if b, ok := job[j].Data[2].([]byte); ok {
+								TaskBuffer = b
+							} else {
+								logger.Error("pivot job task buffer has unexpected type, skipping")
+								break
+							}
+
+							if id, ok := job[j].Data[1].(uint32); ok {
+								PivotAgentID = int(id)
+							} else {
+								logger.Error("pivot job agent id has unexpected type, skipping")
+								break
+							}
 
 							for {
 								var (
@@ -201,16 +226,20 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 										PivotAgentID = Parser.ParseInt32()
 										PivotAgentID = int(bits.ReverseBytes32(uint32(PivotAgentID)))
 
-										TaskBuffer = Parser.ParseBytes()
-										continue
+									TaskBuffer = Parser.ParseBytes()
+									continue
 
-									} else {
-										CallbackSizes[uint32(PivotAgentID)] = append(CallbackSizes[job[j].Data[1].(uint32)], TaskBuffer...)
+								} else {
+									CallbackSizes[uint32(PivotAgentID)] = append(CallbackSizes[uint32(PivotAgentID)], TaskBuffer...)
 
-										break
-									}
-
+									break
 								}
+
+							} else {
+								/* less than 4 bytes left: no complete header,
+								 * stop unwrapping instead of looping forever */
+								break
+							}
 
 							}
 
@@ -275,6 +304,14 @@ func handleDemonAgent(Teamserver agent.TeamServer, Header agent.Header, External
 				return Response, false
 			}
 
+			// reject registrations that adopt DemonID 0 or collide with an
+			// existing session's NameID: the pre-registration existence check
+			// above tests the header AgentID, not the embedded DemonID
+			if DemonID, convErr := strconv.ParseInt(Agent.NameID, 16, 64); convErr != nil || DemonID == 0 || Teamserver.AgentInstance(int(DemonID)) != nil {
+				logger.Debug("Rejected register request: invalid or duplicate DemonID [" + Agent.NameID + "]")
+				return Response, false
+			}
+
 			Agent.Info.MagicValue = Header.MagicValue
 			Agent.Info.Listener = nil /* TODO: pass here the listener instance/name */
 
@@ -322,18 +359,29 @@ func handleServiceAgent(Teamserver agent.TeamServer, Header agent.Header, Extern
 	if !Teamserver.ServiceAgentExist(Header.MagicValue) {
 		return Response, false
 	}
+	// the agent could be deregistered between the Exist check and here:
+	// calling SendResponse on a nil interface would panic
+	ServiceAgent := Teamserver.ServiceAgent(Header.MagicValue)
+	if ServiceAgent == nil {
+		return Response, false
+	}
 
 	Agent = Teamserver.AgentInstance(Header.AgentID)
-	if Agent != nil {
+	if Agent != nil && Agent.Info.MagicValue == Header.MagicValue {
 		AgentData = Agent.ToMap()
-	}
-	
-	// Update Callback time
-	if Teamserver.AgentExist(Header.AgentID) {
+
+		// never leak this agent's encryption keys to a service agent
+		// registered under a different magic value
+		if m, ok := AgentData.(map[string]interface{}); ok {
+			delete(m, "Encryption")
+		}
+
+		// Update Callback time (use the pointer we already hold: a second
+		// AgentExist lookup could race with the agent being removed)
 		Agent.UpdateLastCallback(Teamserver)
 	}
-	
-	Task = Teamserver.ServiceAgent(Header.MagicValue).SendResponse(AgentData, Header)
+
+	Task = ServiceAgent.SendResponse(AgentData, Header)
 	//logger.Debug("Response:\n", hex.Dump(Task))
 
 	_, err = Response.Write(Task)

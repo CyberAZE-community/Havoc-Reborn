@@ -34,6 +34,7 @@ client/Modules/
 
 # ignore all markdown; whitelist only the project docs below
 FINDINGS.md
+REVIEW.md
 *.md
 !AGENTS.md
 !CHANGELOG.md
@@ -44,6 +45,9 @@ FINDINGS.md
 !teamserver/README.md
 !SECURITY.md
 goals
+
+# research reports and other non-project documents
+*.pdf
 
 # ignore AI-tooling artifacts
 node_modules/

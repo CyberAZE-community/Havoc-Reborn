@@ -34,6 +34,12 @@ BOOL TransportInit( )
                 Instance->Session.Connected = TRUE;
                 Success = TRUE;
             }
+
+            /* the response buffer is LocalAlloc'd by the transport: free it
+             * once we are done with it, we reconnect periodically */
+            MemSet( Data, 0, Size );
+            Instance->Win32.LocalFree( Data );
+            Data = NULL;
         }
     }
 #endif

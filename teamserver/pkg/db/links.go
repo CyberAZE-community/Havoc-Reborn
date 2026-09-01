@@ -35,6 +35,7 @@ func (db *DB) LinkAdd(ParentAgentID int, LinkAgentID int) error {
 	/* add the data to the links table */
 	_, err = stmt.Exec(ParentAgentID, LinkAgentID)
 	if err != nil {
+		stmt.Close()
 		return err
 	}
 
@@ -53,10 +54,10 @@ func (db *DB) LinkExist(ParentAgentID int, LinkAgentID int) bool {
 
 	// execute statement
 	query, err := stmt.Query(ParentAgentID, LinkAgentID)
-	defer query.Close()
 	if err != nil {
 		return false
 	}
+	defer query.Close()
 
 	for query.Next() {
 		var NumRows int
@@ -87,10 +88,10 @@ func (db *DB) ParentOf(AgentID int) (int, error) {
 
 	// execute statement
 	query, err := stmt.Query(AgentID)
-	defer query.Close()
 	if err != nil {
 		return 0, err
 	}
+	defer query.Close()
 
 	for query.Next() {
 
@@ -118,10 +119,10 @@ func (db *DB) LinksOf(AgentID int) []int {
 
 	// execute statement
 	query, err := stmt.Query(AgentID)
-	defer query.Close()
 	if err != nil {
 		return IDs
 	}
+	defer query.Close()
 
 	for query.Next() {
 
@@ -145,11 +146,11 @@ func (db *DB) LinkRemove(ParentAgentID int, LinkAgentID int) error {
 
 	// execute statement
 	_, err = stmt.Exec(ParentAgentID, LinkAgentID)
-	stmt.Close()
-
 	if err != nil {
+		stmt.Close()
 		return err
 	}
+	stmt.Close()
 
 	return nil
 }

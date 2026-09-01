@@ -96,9 +96,22 @@ Util::Packager::PPackage Packager::DecodePackage( const QString& Package )
 
         if ( BodyObject[ "Info" ].isObject() )
         {
-            foreach( const QString& key, BodyObject[ "Info" ].toObject().keys() )
+            /* Info is map[string]interface{} server-side: numbers and bools
+             * must not silently become empty strings here */
+            auto InfoObject = BodyObject[ "Info" ].toObject();
+
+            foreach( const QString& key, InfoObject.keys() )
             {
-                FullPackage->Body.Info[ key.toStdString() ] = BodyObject[ "Info" ].toObject().value( key ).toString().toStdString();
+                auto Value = InfoObject.value( key );
+
+                if ( Value.isString() )
+                    FullPackage->Body.Info[ key.toStdString() ] = Value.toString().toStdString();
+                else if ( Value.isDouble() )
+                    FullPackage->Body.Info[ key.toStdString() ] = QString::number( Value.toDouble() ).toStdString();
+                else if ( Value.isBool() )
+                    FullPackage->Body.Info[ key.toStdString() ] = Value.toBool() ? "true" : "false";
+                else
+                    FullPackage->Body.Info[ key.toStdString() ] = Value.toString().toStdString();
             }
         }
 
@@ -188,11 +201,17 @@ bool Packager::DispatchInitConnection( Util::Packager::PPackage Package )
                     HavocApplication->HavocAppUI.setDBManager( HavocApplication->dbManager );
                 }
 
-                const auto  scripts = toml::find( HavocApplication->Config, "scripts" );
-                const auto& files   = toml::find<std::vector<std::string>>( scripts, "files" );
+                /* a config.toml missing [scripts]/files must not abort the
+                 * client with an uncaught toml exception */
+                try {
+                    const auto  scripts = toml::find( HavocApplication->Config, "scripts" );
+                    const auto& files   = toml::find<std::vector<std::string>>( scripts, "files" );
 
-                for ( const auto& file : files ) {
-                    ScriptManager::AddScript( file.c_str() );
+                    for ( const auto& file : files ) {
+                        ScriptManager::AddScript( file.c_str() );
+                    }
+                } catch ( const std::exception& e ) {
+                    spdlog::error( "config.toml [scripts]/files not found: {}", e.what() );
                 }
 
                 HavocApplication->Start();
@@ -444,6 +463,11 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                 };
             }
 
+            /* the widget is created lazily; a peer sending an Edit for a
+             * listener when the table does not exist yet must not crash */
+            if ( HavocX::Teamserver.TabSession->ListenerTableWidget == nullptr )
+                break;
+
             HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerEdit( ListenerInfo );
 
             break;
@@ -466,7 +490,8 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                     if ( ! Error.empty() )
                     {
                         MessageBox( "Listener Error", QString( Error.c_str() ), QMessageBox::Critical );
-                        HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
+                        if ( HavocX::Teamserver.TabSession->ListenerTableWidget != nullptr )
+                            HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
                         auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
@@ -481,7 +506,8 @@ bool Packager::DispatchListener( Util::Packager::PPackage Package )
                 {
                     if ( ! Error.empty() )
                     {
-                        HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
+                        if ( HavocX::Teamserver.TabSession->ListenerTableWidget != nullptr )
+                            HavocX::Teamserver.TabSession->ListenerTableWidget->ListenerError( QString( Name.c_str() ), QString( Error.c_str() ) );
 
                         auto MsgStr = "[" + Util::ColorText::Red( "-" ) + "]" + " Failed to start " + Util::ColorText::Green( "\"" + QString( Name.c_str() ).toHtmlEscaped() + "\"" ) + " listener: " + Util::ColorText::Red( QString( Error.c_str() ).toHtmlEscaped() );
                         auto Time   = QString( Package->Head.Time.c_str() );
@@ -576,6 +602,12 @@ bool Packager::DispatchGate( Util::Packager::PPackage Package )
 
                         PyObject* pyByteArray= PyUnicode_DecodeFSDefault(Package->Body.Info[ "PayloadArray" ].c_str());
                         PyObject* result     = PyObject_CallFunctionObjArgs(HavocX::callbackGate, pyByteArray, nullptr);
+                        if ( result == NULL && PyErr_Occurred() )
+                        {
+                            spdlog::error( "Error calling gate callback" );
+                            PyErr_PrintEx(0);
+                            PyErr_Clear();
+                        }
                         Py_XDECREF( result );
                         Py_XDECREF( pyByteArray );
 
@@ -640,7 +672,11 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                     .WorkingHours = (uint32_t)strtoul(Package->Body.Info[ "WorkingHours" ].c_str(), NULL, 0),
             };
 
+            /* the teamserver writes LastCallIn as UTC wall time (no zone in
+             * the format): parse it as UTC or cross-timezone setups compare
+             * apples to oranges against currentDateTimeUtc() */
             Agent.LastUTC = QDateTime::fromString(Agent.Last, "dd-MM-yyyy HH:mm:ss");
+            Agent.LastUTC.setTimeSpec(Qt::UTC);
 
             if ( Agent.Marked == "true" )
             {
@@ -667,12 +703,17 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
 
             if ( Agent.Marked.compare( "Alive" ) == 0 )
             {
-                for ( auto& Callback : HavocX::Teamserver.RegisteredCallbacks )
+                /* iterate over a snapshot: a callback may register another
+                 * handler, reallocating RegisteredCallbacks mid-iteration */
+                auto Callbacks = HavocX::Teamserver.RegisteredCallbacks;
+
+                for ( auto& Callback : Callbacks )
                 {
+                    /* all python API access (including the type check) must hold the GIL */
+                    auto GilState = PyGILState_Ensure();
+
                     if ( PyCallable_Check( Callback ) )
                     {
-                        auto GilState = PyGILState_Ensure();
-
                         PyObject* arglist = Py_BuildValue( "s", Agent.Name.toStdString().c_str() );
                         PyObject* Return  = PyObject_CallFunctionObjArgs( Callback, arglist, NULL );
                         if ( Return == NULL && PyErr_Occurred() )
@@ -683,11 +724,11 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                         }
                         Py_XDECREF( Return );
                         Py_XDECREF( arglist );
-
-                        PyGILState_Release( GilState );
                     } else {
                         spdlog::error( "Callback is not callable" );
                     }
+
+                    PyGILState_Release( GilState );
                 }
             }
 
@@ -775,20 +816,30 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
                                 auto it = Session.TaskIDToPythonCallbacks.find( TaskID );
                                 if ( it != Session.TaskIDToPythonCallbacks.end() ) {
                                     Callback = it->second;
+
+                                    /* all python API access (including the
+                                     * type check) must hold the GIL */
+                                    auto GilState = PyGILState_Ensure();
+
                                     if ( PyCallable_Check( Callback ) )
                                     {
-                                        auto GilState = PyGILState_Ensure();
-
                                         PyObject *arglist = Py_BuildValue( "ssOss", Session.Name.toStdString().c_str(), TaskID.toStdString().c_str(), Worked == "true" ? Py_True : Py_False, Output.toStdString().c_str(), Error.toStdString().c_str() );
                                         PyObject *result  = PyObject_CallObject( Callback, arglist );
+
+                                        if ( result == nullptr && PyErr_Occurred() )
+                                        {
+                                            PyErr_Print();
+                                            PyErr_Clear();
+                                        }
+
                                         Py_XDECREF( result );
                                         Py_XDECREF( arglist );
                                         Py_XDECREF( Callback );
-
-                                        PyGILState_Release( GilState );
                                     } else {
                                         spdlog::error( "Callback is not callable" );
                                     }
+
+                                    PyGILState_Release( GilState );
 
                                     Session.TaskIDToPythonCallbacks.erase( TaskID );
 
@@ -810,6 +861,7 @@ bool Packager::DispatchSession( Util::Packager::PPackage Package )
 
                             Session.Last         = LastTimeJson["Last"].toString();
                             Session.LastUTC      = QDateTime::fromString(Session.Last, "dd-MM-yyyy HH:mm:ss");
+                            Session.LastUTC.setTimeSpec(Qt::UTC);
                             Session.SleepDelay   = (uint32_t)strtoul(LastTimeJson["Sleep"].toString().toStdString().c_str(), NULL, 0);
                             Session.SleepJitter  = (uint32_t)strtoul(LastTimeJson["Jitter"].toString().toStdString().c_str(), NULL, 0);
                             Session.KillDate     = (uint64_t)strtoull(LastTimeJson["KillDate"].toString().toStdString().c_str(), NULL, 0);
@@ -978,8 +1030,16 @@ bool Packager::DispatchService( Util::Packager::PPackage Package )
 
         case Util::Packager::Service::ListenerRegister:
         {
-            auto listener = json::parse( Package->Body.Info[ "Listener" ].c_str() );
-            auto name     = listener[ "Name" ].get<std::string>();
+            /* the listener blob comes from the service agent: malformed
+             * JSON must not abort the dispatch loop with an exception */
+            nlohmann::json listener;
+            try {
+                listener = json::parse( Package->Body.Info[ "Listener" ].c_str() );
+            } catch ( const std::exception& e ) {
+                spdlog::error( "Service listener registration: bad JSON: {}", e.what() );
+                return false;
+            }
+            auto name     = listener.value( "Name", std::string() );
 
             HavocX::Teamserver.RegisteredListeners.push_back( listener );
 

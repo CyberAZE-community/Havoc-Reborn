@@ -52,18 +52,21 @@ BOOL SmbSend( PBUFFER Send )
     {
         PRINTF( "WriteFile Failed:[%d]\n", NtGetLastError() );
 
-        /* Means that the client disconnected/the pipe is closing. */
+        /* any write failure means the request was not delivered:
+         * never report success here or queued packages would be
+         * dropped as if they had been sent */
         if ( NtGetLastError() == ERROR_NO_DATA )
         {
+            /* the client disconnected/the pipe is closing. */
             if ( Instance->Config.Transport.Handle )
             {
                 SysNtClose( Instance->Config.Transport.Handle );
                 Instance->Config.Transport.Handle = NULL;
             }
-
-            Instance->Session.Connected = FALSE;
-            return FALSE;
         }
+
+        Instance->Session.Connected = FALSE;
+        return FALSE;
     }
 
     return TRUE;

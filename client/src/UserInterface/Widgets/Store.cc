@@ -6,12 +6,13 @@
 #include <global.hpp>
 
 #include <QScrollBar>
+#include <QProcess>
 
 void Store::setupUi( QWidget* Store)
 {
     StoreWidget = Store;
     QUrl url("https://raw.githubusercontent.com/p4p1/havoc-store/main/public/havoc-modules.json");
-    QNetworkAccessManager* manager = new QNetworkAccessManager();
+    QNetworkAccessManager* manager = new QNetworkAccessManager( Store );
     QNetworkReply *reply = manager->get(QNetworkRequest(url));
 
     if ( Store->objectName().isEmpty() )
@@ -73,16 +74,21 @@ void Store::setupUi( QWidget* Store)
     StoreTable->verticalHeader()->setVisible( false );
     StoreTable->setFocusPolicy( Qt::NoFocus );
 
-    QObject::connect(reply, &QNetworkReply::finished, [reply, this]() {
+    /* manager (not `this`) is the context object: Store is not a QObject,
+     * and manager is parented to the dialog so the connection dies with the
+     * widget tree and a late reply can't write into dangling widget state */
+    QObject::connect(reply, &QNetworkReply::finished, manager, [reply, this]() {
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray data = reply->readAll();
             QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
 
             if (!jsonDoc.isNull() && jsonDoc.isArray()) {
+                if ( this->dataStore != nullptr )
+                    delete this->dataStore;
                 this->dataStore = new QJsonArray(jsonDoc.array());
                 QJsonArray jsonArray = jsonDoc.array();
                 int row_num = 0;
-                this->StoreTable->setRowCount(jsonArray.size());
+                int table_row = 0;
                 for (const QJsonValue &value : jsonArray) {
                     if (value.isObject()) {
                         QJsonObject jsonObj = value.toObject();
@@ -91,10 +97,18 @@ void Store::setupUi( QWidget* Store)
 
                         QTableWidgetItem *title_widget= new QTableWidgetItem(title);
                         QTableWidgetItem *author_widget = new QTableWidgetItem(author);
-                        this->StoreTable->setItem(row_num, 0, title_widget);
-                        this->StoreTable->setItem(row_num, 1, author_widget);
-                        row_num++;
+                        /* the table only holds rows for object entries: the
+                         * table row counter is separate from row_num (the
+                         * index into dataStore) so non-object entries can't
+                         * desync the mapping — row_num is stored in UserRole */
+                        title_widget->setData( Qt::UserRole, row_num );
+                        if ( table_row >= this->StoreTable->rowCount() )
+                            this->StoreTable->insertRow( table_row );
+                        this->StoreTable->setItem(table_row, 0, title_widget);
+                        this->StoreTable->setItem(table_row, 1, author_widget);
+                        table_row++;
                     }
+                    row_num++;
                 }
             } else {
                 spdlog::error( "[STORE] Failed to parse the JSON data" );
@@ -109,14 +123,18 @@ void Store::setupUi( QWidget* Store)
     QObject::connect(StoreTable, &QTableWidget::itemSelectionChanged, [this]() {
         QList<QTableWidgetItem *> selectedItems = this->StoreTable->selectedItems();
         if (!selectedItems.isEmpty()) {
-            displayData(selectedItems.first()->row());
+            auto* titleItem = this->StoreTable->item( selectedItems.first()->row(), 0 );
+            if ( titleItem != nullptr )
+                displayData( titleItem->data( Qt::UserRole ).toInt() );
         }
     });
 
     QObject::connect(installButton, &QPushButton::clicked, [this]() {
         QList<QTableWidgetItem *> selectedItems = this->StoreTable->selectedItems();
         if (!selectedItems.isEmpty()) {
-            installScript(selectedItems.first()->row());
+            auto* titleItem = this->StoreTable->item( selectedItems.first()->row(), 0 );
+            if ( titleItem != nullptr )
+                installScript( titleItem->data( Qt::UserRole ).toInt() );
         }
     });
 
@@ -133,14 +151,17 @@ void Store::setupUi( QWidget* Store)
 
 void Store::displayData(int position)
 {
+    if ( dataStore == nullptr || position < 0 || position >= dataStore->size() )
+        return;
+
     QJsonObject jsonObj = dataStore->at(position).toObject();
     QString title = jsonObj.value("title").toString();
     QString description = jsonObj.value("description").toString();
     QString author = jsonObj.value("author").toString();
 
-    headerLabelTitle->setText(QString("<h1>%1</h1>").arg(title));
-    panelLabelDescription->setText(description);
-    panelLabelAuthor->setText(QString("<span style='color:#71e0cb'>%1</span>").arg(author));
+    headerLabelTitle->setText(QString("<h1>%1</h1>").arg(title.toHtmlEscaped()));
+    panelLabelDescription->setText(description.toHtmlEscaped());
+    panelLabelAuthor->setText(QString("<span style='color:#71e0cb'>%1</span>").arg(author.toHtmlEscaped()));
     installButton->setEnabled(true);
 }
 
@@ -175,12 +196,26 @@ bool Store::AddScript( QString Path )
 
 void Store::installScript(int position)
 {
+    if ( dataStore == nullptr || position < 0 || position >= dataStore->size() )
+        return;
+
     QString gistUrl = "https://gist.githubusercontent.com/%1/%2/raw/%3";
 
     QJsonObject jsonObj = dataStore->at(position).toObject();
     QString url = jsonObj.value("link").toString();
     QString entrypoint = jsonObj.value("entrypoint").toString();
     QString author = jsonObj.value("author").toString();
+
+    /* the store index is untrusted network data: names that carry path
+     * components would make wget/git write (and AddScript then execute)
+     * files outside data/extensions */
+    auto isSafeName = []( const QString& name ) {
+        return ! name.isEmpty() && ! name.contains( '/' ) && ! name.contains( '\\' ) && ! name.contains( ".." );
+    };
+    if ( ! isSafeName( entrypoint ) ) {
+        spdlog::error( "[STORE] rejecting unsafe entrypoint in store index" );
+        return;
+    }
 
     QString currentPath = QDir::currentPath();
     QDir extension_path(QString("./data/extensions"));
@@ -196,12 +231,12 @@ void Store::installScript(int position)
 
         QString downloadURL = gistUrl.arg(author, github_hash, entrypoint);
         QString pathScript = QString("%1/data/extensions/%2").arg(currentPath).arg(entrypoint);
-        QString command = QString("wget %1 -O %2").arg(downloadURL).arg(pathScript);
 
-        // Yes there is a command injection vulnerability here. Now this is not the best
-        // but since the front-end will be fully redone I am not putting to much effort
-        // here it's just to code the base concept nothing else :)
-        system(command.toUtf8().constData());
+        // store index data is untrusted: never pass it through a shell
+        if ( QProcess::execute( QString("wget"), QStringList{ downloadURL, "-O", pathScript } ) != 0 ) {
+            spdlog::error( "[STORE] wget failed to download {}", downloadURL.toStdString() );
+            return;
+        }
 
         if ( AddScript( pathScript ) ) {
             if ( ! HavocX::Teamserver.TabSession->dbManager->CheckScript(pathScript) )
@@ -210,10 +245,21 @@ void Store::installScript(int position)
     } else { // Must be a repo then and not a gist ^^ now we can be happy for that entrypoint var
         QStringList urlParts = url.split('/');
         QString repo_name = urlParts.last();
-        QString pathScript = QString("%1/data/extensions/%2/%3").arg(currentPath).arg(repo_name).arg(entrypoint);
-        QString command = QString("git clone --recurse-submodules --remote-submodules %1 %2/data/extensions/%3").arg(url).arg(currentPath).arg(repo_name);
 
-        system(command.toUtf8().constData());
+        if ( ! isSafeName( repo_name ) ) {
+            spdlog::error( "[STORE] rejecting unsafe repository name in store index" );
+            return;
+        }
+
+        QString pathScript = QString("%1/data/extensions/%2/%3").arg(currentPath).arg(repo_name).arg(entrypoint);
+        QString cloneTarget = QString("%1/data/extensions/%2").arg(currentPath).arg(repo_name);
+
+        // store index data is untrusted: never pass it through a shell
+        if ( QProcess::execute( QString("git"), QStringList{ "clone", "--recurse-submodules", "--remote-submodules", url, cloneTarget } ) != 0 ) {
+            spdlog::error( "[STORE] git clone failed for {}", url.toStdString() );
+            return;
+        }
+
         if ( AddScript( pathScript ) ) {
             if ( ! HavocX::Teamserver.TabSession->dbManager->CheckScript(pathScript) )
                 HavocX::Teamserver.TabSession->dbManager->AddScript(pathScript);

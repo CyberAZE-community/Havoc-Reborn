@@ -2,9 +2,9 @@ package server
 
 import (
 	"Havoc/pkg/logger"
+	crand "crypto/rand"
 	"encoding/json"
-	"math/rand"
-	"time"
+	"math/big"
 	"fmt"
 	"strconv"
 
@@ -28,10 +28,12 @@ func (t *Teamserver) Died(Agent *agent.Agent) {
 }
 
 func (t *Teamserver) UnlinkFromAll(Agent *agent.Agent) {
-	// remove all links from agent
-	for i := range Agent.Pivots.Links {
-		t.LinkRemove(Agent, Agent.Pivots.Links[i], false)
-		Agent.Pivots.Links = append(Agent.Pivots.Links[:i], Agent.Pivots.Links[i+1:]...)
+	// remove all links from agent. the loop reads a snapshot instead of the
+	// live slice (unlocked Links[0] reads race concurrent PivotLinkAdd), and
+	// removing by NameID keeps the remaining snapshot entries valid.
+	for _, Link := range Agent.PivotsSnapshotLinks() {
+		Agent.PivotLinkRemove(Link.NameID)
+		t.LinkRemove(Agent, Link, false)
 	}
 
 	// remove agent from parent's link
@@ -40,10 +42,10 @@ func (t *Teamserver) UnlinkFromAll(Agent *agent.Agent) {
 			continue
 		}
 
-		for i := range ParentAgent.Pivots.Links {
-			if ParentAgent.Pivots.Links[i].NameID == Agent.NameID {
+		for _, Link := range ParentAgent.PivotsSnapshotLinks() {
+			if Link.NameID == Agent.NameID {
 				t.LinkRemove(ParentAgent, Agent, false)
-				ParentAgent.Pivots.Links = append(ParentAgent.Pivots.Links[:i], ParentAgent.Pivots.Links[i+1:]...)
+				ParentAgent.PivotLinkRemove(Agent.NameID)
 				break
 			}
 		}
@@ -83,12 +85,7 @@ func (t *Teamserver) LinkRemove(ParentAgent *agent.Agent, LinkAgent *agent.Agent
 	LinkAgent.Reason = "Disconnected"
 
 	if UpdateLinks {
-		for i := range ParentAgent.Pivots.Links {
-			if ParentAgent.Pivots.Links[i].NameID == LinkAgent.NameID {
-				ParentAgent.Pivots.Links = append(ParentAgent.Pivots.Links[:i], ParentAgent.Pivots.Links[i+1:]...)
-				break
-			}
-		}
+		ParentAgent.PivotLinkRemove(LinkAgent.NameID)
 	}
 
 	err := t.DB.LinkRemove(int(ParentAgentID), int(LinkAgentID))
@@ -246,7 +243,11 @@ func (t *Teamserver) SendLogs() bool {
 }
 
 func (t *Teamserver) GetDotNetPipeTemplate() string {
-	PipeTemplate := t.Profile.Config.Demon.DotNetNamePipe
+	// the profile may legitimately have no Demon block (service-only teamserver)
+	PipeTemplate := ""
+	if t.Profile.Config.Demon != nil {
+		PipeTemplate = t.Profile.Config.Demon.DotNetNamePipe
+	}
 
 	// https://gist.github.com/realoriginal/d9178c9b071707fec2d6de89a63e4709
 
@@ -258,9 +259,13 @@ func (t *Teamserver) GetDotNetPipeTemplate() string {
 	}
 
 	if PipeTemplate == "" {
-		rand.Seed(time.Now().UnixNano())
-		index := rand.Intn(len(PipeTemplates))
-		PipeTemplate = PipeTemplates[index]
+		// crypto/rand instead of a globally-seeded math/rand: the picked
+		// template feeds SMB pipe names for every assembly task
+		if n, err := crand.Int(crand.Reader, big.NewInt(int64(len(PipeTemplates)))); err == nil {
+			PipeTemplate = PipeTemplates[n.Int64()]
+		} else {
+			PipeTemplate = PipeTemplates[0]
+		}
 	}
 
 	return PipeTemplate

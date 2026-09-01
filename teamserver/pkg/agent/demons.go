@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
@@ -140,14 +141,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		err error
 	)
 
-	Optional := Info.(map[string]interface{})
-
-	if val, ok := Optional["CommandLine"]; ok {
-		job.CommandLine = val.(string)
+	Optional, iok := Info.(map[string]interface{})
+	if !iok {
+		return nil, errors.New("task info is not a map")
 	}
 
-	if val, ok := Optional["TaskID"]; ok {
-		job.TaskID = val.(string)
+	if val, ok := Optional["CommandLine"].(string); ok {
+		job.CommandLine = val
+	}
+
+	if val, ok := Optional["TaskID"].(string); ok {
+		job.TaskID = val
 
 		RequestID, err := strconv.ParseInt(job.TaskID, 16, 64)
 		if err == nil {
@@ -188,7 +192,16 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			ArgArray []string
 		)
 
-		ArgArray = strings.Split(Optional["Arguments"].(string), ";")
+		ArgsString, ok := Optional["Arguments"].(string)
+		if !ok {
+			return nil, errors.New("sleep arguments not found")
+		}
+
+		ArgArray = strings.Split(ArgsString, ";")
+
+		if len(ArgArray) < 2 {
+			return nil, errors.New("sleep requires 2 arguments: delay;jitter")
+		}
 
 		Delay, err = strconv.Atoi(ArgArray[0])
 		if err != nil {
@@ -200,6 +213,16 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			return nil, err
 		}
 
+		// the implant computes its jitter window from these values without
+		// re-checking them: a negative delay or jitter outside 0-100 would
+		// skew the sleep math on the agent
+		if Delay < 0 {
+			return nil, errors.New("sleep delay must not be negative")
+		}
+		if Jitter < 0 || Jitter > 100 {
+			return nil, errors.New("sleep jitter must be between 0 and 100")
+		}
+
 		job.Data = []interface{}{
 			Delay,
 			Jitter,
@@ -207,11 +230,22 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_FS:
 		var (
-			Arguments  = Optional["Arguments"].(string)
+			Arguments  string
 			SubCommand = 0
 		)
 
-		switch Optional["SubCommand"].(string) {
+		if val, ok := Optional["Arguments"].(string); ok {
+			Arguments = val
+		} else {
+			return nil, errors.New("fs arguments not found")
+		}
+
+		SubCommandStr, ok := Optional["SubCommand"].(string)
+		if !ok {
+			return nil, errors.New("fs subcommand not found")
+		}
+
+		switch SubCommandStr {
 		case "dir":
 			SubCommand = 1
 
@@ -222,7 +256,11 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				ListOnly int
 			)
 
-			ArgArray  := strings.Split(Arguments, ";")
+			ArgArray := strings.Split(Arguments, ";")
+			if len(ArgArray) < 8 {
+				return nil, errors.New("dir requires 8 arguments: path;subdirs;filesonly;dirsonly;listonly;starts;contains;ends")
+			}
+
 			Path      := ArgArray[0]
 			Starts    := ArgArray[5];
 			Contains  := ArgArray[6];
@@ -343,6 +381,9 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			)
 
 			ArgArray = strings.Split(Arguments, ";")
+			if len(ArgArray) < 2 {
+				return nil, errors.New("upload requires 2 arguments: fileName;fileContent")
+			}
 
 			if val, err := base64.StdEncoding.DecodeString(ArgArray[0]); err == nil {
 				FileName = append([]byte(common.EncodeUTF16(string(val))), []byte{0, 0}...)
@@ -484,9 +525,19 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_PROC:
 		var (
-			SubCommand, _ = strconv.Atoi(Optional["ProcCommand"].(string))
-			Arguments     = Optional["Args"].(string)
+			SubCommand int
+			Arguments  string
 		)
+
+		ProcCommandStr, ok := Optional["ProcCommand"].(string)
+		if !ok {
+			return nil, errors.New("proc command not found")
+		}
+		SubCommand, _ = strconv.Atoi(ProcCommandStr)
+
+		if val, ok := Optional["Args"].(string); ok {
+			Arguments = val
+		}
 
 		switch SubCommand {
 		case DEMON_COMMAND_PROC_MODULES:
@@ -514,6 +565,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				ProcessPiped   int
 				ProcessVerbose int
 			)
+
+			if len(Args) < 5 {
+				return nil, errors.New("process create requires 5 arguments")
+			}
 
 			// State, Verbose, Piped, ProcessApp, ProcessArg
 			ProcessState, err := strconv.Atoi(Args[0])
@@ -566,6 +621,10 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				Args        = strings.Split(Arguments, " ")
 				QueryProtec int
 			)
+
+			if len(Args) < 2 {
+				return nil, errors.New("process memory requires 2 arguments: pid;protection")
+			}
 
 			var (
 				ProcID, _ = strconv.Atoi(Args[0])
@@ -644,7 +703,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		break
 
 	case COMMAND_PROC_PPIDSPOOF:
-		var PPIDSpoof, err = strconv.Atoi(Optional["PPID"].(string))
+		PPIDStr, ok := Optional["PPID"].(string)
+		if !ok {
+			return nil, errors.New("ppid not found")
+		}
+
+		var PPIDSpoof, err = strconv.Atoi(PPIDStr)
 		if err != nil {
 			logger.Error(err)
 			break
@@ -683,8 +747,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		}
 
 		if Arguments, ok := Optional["Arguments"].(string); ok {
-			if Parameters, err = base64.StdEncoding.DecodeString(Arguments); !ok {
-				return nil, errors.New("FunctionName not defined")
+			if Parameters, err = base64.StdEncoding.DecodeString(Arguments); err != nil {
+				return nil, errors.New("CoffeeLdr: failed to decode base64 encoded arguments: " + err.Error())
 			}
 		} else {
 			return nil, errors.New("CoffeeLdr: Arguments not defined")
@@ -739,13 +803,26 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_ASSEMBLY_INLINE_EXECUTE:
 		var (
-			binaryDecoded, _ = base64.StdEncoding.DecodeString(Optional["Binary"].(string))
-			arguments        = common.EncodeUTF16(Optional["Arguments"].(string))
-			NetVersion       = common.EncodeUTF16("v4.0.30319")
+			binaryDecoded []byte
+			arguments     []byte
+			NetVersion    = common.EncodeUTF16("v4.0.30319")
 			PipePath         = common.EncodeUTF16(common.GeneratePipeName(teamserver.GetDotNetPipeTemplate(), a.Info.ProcessPID, a.Info.ProcessTID))
-			AppDomainName    = common.EncodeUTF16("DefaultDomain")
-			MemFileId        uint32
+			AppDomainName = common.EncodeUTF16("DefaultDomain")
+			MemFileId     uint32
 		)
+
+		BinaryStr, ok := Optional["Binary"].(string)
+		if !ok {
+			return nil, errors.New("assembly field Binary is empty")
+		}
+
+		ArgumentsStr, ok := Optional["Arguments"].(string)
+		if !ok {
+			return nil, errors.New("assembly field Arguments is empty")
+		}
+
+		binaryDecoded, _ = base64.StdEncoding.DecodeString(BinaryStr)
+		arguments        = common.EncodeUTF16(ArgumentsStr)
 
 		MemFileId = a.UploadMemFileInChunks(binaryDecoded)
 
@@ -761,9 +838,19 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		break
 
 	case COMMAND_SPAWNDLL:
+		BinaryStr, ok := Optional["Binary"].(string)
+		if !ok {
+			return nil, errors.New("spawndll field Binary is empty")
+		}
+
+		ArgumentsStr, ok := Optional["Arguments"].(string)
+		if !ok {
+			return nil, errors.New("spawndll field Arguments is empty")
+		}
+
 		var (
-			Binary, _            = base64.StdEncoding.DecodeString(Optional["Binary"].(string))
-			Args, _              = base64.StdEncoding.DecodeString(Optional["Arguments"].(string))
+			Binary, _            = base64.StdEncoding.DecodeString(BinaryStr)
+			Args, _              = base64.StdEncoding.DecodeString(ArgumentsStr)
 			DllReflectiveLdrPath string
 			DllReflectiveLdr     []byte
 		)
@@ -832,13 +919,27 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 	case COMMAND_INJECT_DLL:
 		var (
-			binaryDecoded, _     = base64.StdEncoding.DecodeString(Optional["Binary"].(string))
-			TargetPID, _         = strconv.Atoi(Optional["PID"].(string))
-			Param, _             = Optional["Arguments"].(string)
+			binaryDecoded        []byte
+			TargetPID            int
+			Param                string
 			InjectMethode        int
 			DllReflectiveLdr     []byte
 			DllReflectiveLdrPath string
 		)
+
+		BinaryStr, ok := Optional["Binary"].(string)
+		if !ok {
+			return nil, errors.New("inject field Binary is empty")
+		}
+
+		PIDStr, ok := Optional["PID"].(string)
+		if !ok {
+			return nil, errors.New("inject field PID is empty")
+		}
+
+		binaryDecoded, _ = base64.StdEncoding.DecodeString(BinaryStr)
+		TargetPID, _     = strconv.Atoi(PIDStr)
+		Param, _         = Optional["Arguments"].(string)
 
 		DllReflectiveLdrPath = utils.GetTeamserverPath() + "/payloads/DllLdr.x64.bin"
 
@@ -864,16 +965,21 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			Argument  []byte
 		)
 
-		if val, ok := Optional["Way"]; ok {
+		if val, ok := Optional["Way"].(string); ok {
 
-			if val.(string) == "Inject" {
-				Binary, err := base64.StdEncoding.DecodeString(Optional["Binary"].(string))
+			if val == "Inject" {
+				BinaryStr, iok := Optional["Binary"].(string)
+				if !iok {
+					return job, errors.New("inject field Binary is empty")
+				}
+
+				Binary, err := base64.StdEncoding.DecodeString(BinaryStr)
 				if err != nil {
 					return job, err
 				}
 
-				if _, ok := Optional["Argument"]; ok {
-					args, err := base64.StdEncoding.DecodeString(Optional["Argument"].(string))
+				if ArgumentStr, ok := Optional["Argument"].(string); ok {
+					args, err := base64.StdEncoding.DecodeString(ArgumentStr)
 					if err != nil {
 						return job, err
 					}
@@ -883,12 +989,22 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					}
 				}
 
-				TargetPid, err := strconv.Atoi(Optional["PID"].(string))
+				PIDStr, iok := Optional["PID"].(string)
+				if !iok {
+					return job, errors.New("inject field PID is empty")
+				}
+
+				TargetPid, err := strconv.Atoi(PIDStr)
 				if err != nil {
 					return job, err
 				}
 
-				switch strings.ToLower(Optional["Technique"].(string)) {
+				TechniqueStr, iok := Optional["Technique"].(string)
+				if !iok {
+					return job, errors.New("inject field Technique is empty")
+				}
+
+				switch strings.ToLower(TechniqueStr) {
 				case "default":
 					Technique = THREAD_METHOD_DEFAULT
 					break
@@ -906,7 +1022,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					break
 
 				default:
-					return job, fmt.Errorf("technique \"%v\"", Optional["Technique"].(string))
+					return job, fmt.Errorf("technique \"%v\"", TechniqueStr)
 				}
 
 				x64 = win32.FALSE
@@ -922,14 +1038,19 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					Argument,
 					TargetPid,
 				}
-			} else if val.(string) == "Spawn" {
-				Binary, err := base64.StdEncoding.DecodeString(Optional["Binary"].(string))
+			} else if val == "Spawn" {
+				BinaryStr, iok := Optional["Binary"].(string)
+				if !iok {
+					return job, errors.New("inject field Binary is empty")
+				}
+
+				Binary, err := base64.StdEncoding.DecodeString(BinaryStr)
 				if err != nil {
 					return job, err
 				}
 
-				if _, ok := Optional["Argument"]; ok {
-					args, err := base64.StdEncoding.DecodeString(Optional["Argument"].(string))
+				if ArgumentStr, ok := Optional["Argument"].(string); ok {
+					args, err := base64.StdEncoding.DecodeString(ArgumentStr)
 					if err != nil {
 						return job, err
 					}
@@ -939,7 +1060,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					}
 				}
 
-				switch strings.ToLower(Optional["Technique"].(string)) {
+				TechniqueStr, iok := Optional["Technique"].(string)
+				if !iok {
+					return job, errors.New("inject field Technique is empty")
+				}
+
+				switch strings.ToLower(TechniqueStr) {
 				case "default":
 					Technique = THREAD_METHOD_DEFAULT
 					break
@@ -957,7 +1083,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					break
 
 				default:
-					return job, fmt.Errorf("technique \"%v\"", Optional["Technique"].(string))
+					return job, fmt.Errorf("technique \"%v\"", TechniqueStr)
 				}
 
 				x64 = win32.FALSE
@@ -972,14 +1098,19 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					Binary,
 					Argument,
 				}
-			} else if val.(string) == "Execute" {
-				Binary, err := base64.StdEncoding.DecodeString(Optional["Binary"].(string))
+			} else if val == "Execute" {
+				BinaryStr, iok := Optional["Binary"].(string)
+				if !iok {
+					return job, errors.New("inject field Binary is empty")
+				}
+
+				Binary, err := base64.StdEncoding.DecodeString(BinaryStr)
 				if err != nil {
 					return job, err
 				}
 
-				if _, ok := Optional["Argument"]; ok {
-					args, err := base64.StdEncoding.DecodeString(Optional["Argument"].(string))
+				if ArgumentStr, ok := Optional["Argument"].(string); ok {
+					args, err := base64.StdEncoding.DecodeString(ArgumentStr)
 					if err != nil {
 						return job, err
 					}
@@ -989,7 +1120,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					}
 				}
 
-				switch strings.ToLower(Optional["Technique"].(string)) {
+				TechniqueStr, iok := Optional["Technique"].(string)
+				if !iok {
+					return job, errors.New("inject field Technique is empty")
+				}
+
+				switch strings.ToLower(TechniqueStr) {
 				case "default":
 					Technique = THREAD_METHOD_DEFAULT
 					break
@@ -1007,7 +1143,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					break
 
 				default:
-					return job, fmt.Errorf("technique \"%v\"", Optional["Technique"].(string))
+					return job, fmt.Errorf("technique \"%v\"", TechniqueStr)
 				}
 
 				x64 = win32.FALSE
@@ -1072,6 +1208,9 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					)
 
 					ArrayData = strings.Split(val, ";")
+					if len(ArrayData) < 2 {
+						return job, errors.New("token steal requires 2 arguments: pid;handle")
+					}
 
 					PID, err = strconv.Atoi(ArrayData[0])
 					if err != nil {
@@ -1145,6 +1284,9 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					)
 
 					ArrayData = strings.Split(val, ";")
+					if len(ArrayData) < 4 {
+						return job, errors.New("token make requires 4 arguments: domain;user;password;logonType")
+					}
 
 					if val, err := base64.StdEncoding.DecodeString(ArrayData[0]); err != nil {
 						return job, errors.New("Failed to decode Domain: " + err.Error())
@@ -1246,12 +1388,15 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 	case COMMAND_CONFIG:
 
 		var (
-			ConfigKey = Optional["ConfigKey"]
-			ConfigVal = Optional["ConfigVal"]
+			ConfigKey string
+			ConfigVal string
 
 			ConfigId int
 			Value    any
 		)
+
+		ConfigKey, _ = Optional["ConfigKey"].(string)
+		ConfigVal, _ = Optional["ConfigVal"].(string)
 
 		switch ConfigKey {
 
@@ -1270,9 +1415,18 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			ConfigId = CONFIG_IMPLANT_SPFTHREADSTART
 
 			var (
-				Library   = strings.Split(ConfigVal.(string), "!")[0]
-				Function  = strings.Split(ConfigVal.(string), "!")[1]
-				OffsetStr = strings.Split(ConfigVal.(string), "+")[1]
+				LibFuncParts = strings.Split(ConfigVal, "!")
+				OffsetParts  = strings.Split(ConfigVal, "+")
+			)
+
+			if len(LibFuncParts) < 2 || len(OffsetParts) < 2 {
+				return nil, errors.New("config value must be in the form library!function+0xoffset")
+			}
+
+			var (
+				Library   = LibFuncParts[0]
+				Function  = LibFuncParts[1]
+				OffsetStr = OffsetParts[1]
 			)
 
 			OffsetStr = strings.Replace(OffsetStr, "0x", "", -1)
@@ -1296,7 +1450,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 		case "implant.sleep-obf.technique":
 			ConfigId = CONFIG_IMPLANT_SLEEP_TECHNIQUE
 
-			var Num, err = strconv.Atoi(ConfigVal.(string))
+			var Num, err = strconv.Atoi(ConfigVal)
 			if err != nil {
 				logger.Error("Failed to convert string to num: " + err.Error())
 			}
@@ -1329,27 +1483,36 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 		case "memory.alloc":
 			ConfigId = CONFIG_MEMORY_ALLOC
-			Value, _ = strconv.Atoi(ConfigVal.(string))
+			Value, _ = strconv.Atoi(ConfigVal)
 
 			break
 
 		case "memory.execute":
 			ConfigId = CONFIG_MEMORY_EXECUTE
-			Value, _ = strconv.Atoi(ConfigVal.(string))
+			Value, _ = strconv.Atoi(ConfigVal)
 			break
 
 		case "inject.technique":
 			ConfigId = CONFIG_INJECT_TECHNIQUE
-			Value, _ = strconv.Atoi(ConfigVal.(string))
+			Value, _ = strconv.Atoi(ConfigVal)
 			break
 
 		case "inject.spoofaddr":
 			ConfigId = CONFIG_INJECT_SPOOFADDR
 
 			var (
-				Library   = strings.Split(ConfigVal.(string), "!")[0]
-				Function  = strings.Split(ConfigVal.(string), "!")[1]
-				OffsetStr = strings.Split(ConfigVal.(string), "+")[1]
+				LibFuncParts = strings.Split(ConfigVal, "!")
+				OffsetParts  = strings.Split(ConfigVal, "+")
+			)
+
+			if len(LibFuncParts) < 2 || len(OffsetParts) < 2 {
+				return nil, errors.New("config value must be in the form library!function+0xoffset")
+			}
+
+			var (
+				Library   = LibFuncParts[0]
+				Function  = LibFuncParts[1]
+				OffsetStr = OffsetParts[1]
 			)
 
 			OffsetStr = strings.Replace(OffsetStr, "0x", "", -1)
@@ -1371,12 +1534,12 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 		case "inject.spawn64":
 			ConfigId = CONFIG_INJECT_SPAWN64
-			Value = common.EncodeUTF16(ConfigVal.(string))
+			Value = common.EncodeUTF16(ConfigVal)
 			break
 
 		case "inject.spawn32":
 			ConfigId = CONFIG_INJECT_SPAWN32
-			Value = common.EncodeUTF16(ConfigVal.(string))
+			Value = common.EncodeUTF16(ConfigVal)
 			break
 
 		case "killdate":
@@ -1384,8 +1547,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			var (
 				KillDate int64
 			)
-			if ConfigVal.(string) != "0" {
-				t, err := time.Parse("2006-01-02 15:04:05", ConfigVal.(string))
+			if ConfigVal != "0" {
+				t, err := time.Parse("2006-01-02 15:04:05", ConfigVal)
 				if err != nil {
 					logger.Error("Failed to parse the kill date: " + err.Error())
 					return nil, errors.New("Invalid date format, use: 2006-01-02 15:04:05")
@@ -1413,8 +1576,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			var (
 				WorkingHours int32
 			)
-			if ConfigVal.(string) != "0" {
-				WorkingHours, err = common.ParseWorkingHours(ConfigVal.(string))
+			if ConfigVal != "0" {
+				WorkingHours, err = common.ParseWorkingHours(ConfigVal)
 				if err != nil {
 					return nil, err
 				}
@@ -1449,8 +1612,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			Param      string
 		)
 
-		if val, ok := Optional["NetCommand"]; ok {
-			NetCommand, err = strconv.Atoi(val.(string))
+		if val, ok := Optional["NetCommand"].(string); ok {
+			NetCommand, err = strconv.Atoi(val)
 			if err != nil {
 				logger.Debug("Failed to parse net command: " + err.Error())
 				return nil, err
@@ -1459,8 +1622,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			return nil, errors.New("command::net NetCommand not defined")
 		}
 
-		if val, ok := Optional["Param"]; ok {
-			Param = val.(string)
+		if val, ok := Optional["Param"].(string); ok {
+			Param = val
 		} else {
 			return nil, errors.New("command::net param not defined")
 		}
@@ -1548,13 +1711,13 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			Param        string
 		)
 
-		if val, ok := Optional["Param"]; ok {
-			Param = val.(string)
+		if val, ok := Optional["Param"].(string); ok {
+			Param = val
 		}
 
-		if val, ok := Optional["Command"]; ok {
+		if val, ok := Optional["Command"].(string); ok {
 
-			if val, err := strconv.Atoi(val.(string)); err != nil {
+			if val, err := strconv.Atoi(val); err != nil {
 				logger.Debug("failed to convert pivot command to int: " + err.Error())
 				return nil, errors.New("failed to convert pivot command to int: " + err.Error())
 			} else {
@@ -1605,14 +1768,14 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			FileID     int64
 		)
 
-		if val, ok := Optional["Command"]; ok {
-			SubCommand = val.(string)
+		if val, ok := Optional["Command"].(string); ok {
+			SubCommand = val
 		} else {
 			return job, errors.New("transfer field Command is empty.")
 		}
 
-		if val, ok := Optional["FileID"]; ok {
-			Param = val.(string)
+		if val, ok := Optional["FileID"].(string); ok {
+			Param = val
 		} else {
 			return job, errors.New("transfer field FileID is empty.")
 		}
@@ -1669,14 +1832,14 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			Param      string
 		)
 
-		if val, ok := Optional["Command"]; ok {
-			SubCommand = val.(string)
+		if val, ok := Optional["Command"].(string); ok {
+			SubCommand = val
 		} else {
 			return job, errors.New("socket field Command is empty")
 		}
 
-		if val, ok := Optional["Params"]; ok {
-			Param = val.(string)
+		if val, ok := Optional["Params"].(string); ok {
+			Param = val
 		} else {
 			return job, errors.New("socket field param is empty")
 		}
@@ -1693,7 +1856,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 
 			/* LclAddr; LclPort; FwdAddr; FwdPort */
 			Params = strings.Split(Param, ";")
-			if len(Param) < 4 {
+			if len(Params) < 4 {
 				return nil, fmt.Errorf("rportfwd requires 4 arguments, received %d", len(Params))
 			}
 
@@ -1806,10 +1969,15 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					SocksHeader       socks.SocksHeader
 					err               error
 					SocketId          int32
+
+					// single buffered reader for the whole handshake: two
+					// independent readers would drop the first one's buffered
+					// remainder (a pipelined CONNECT request) (M75)
+					SocksReader = bufio.NewReader(conn)
 				)
 
 				// parse all the methods supported by the client
-				NegotiationHeader, err = socks.SubNegotiationClient(conn)
+				NegotiationHeader, err = socks.SubNegotiationClient(SocksReader)
 				if err != nil {
 					logger.Error("Failed to read socks negotiation header: " + err.Error())
 					return
@@ -1840,7 +2008,7 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					return
 				}
 
-				SocksHeader, err = socks.ReadSocksHeader(conn)
+				SocksHeader, err = socks.ReadSocksHeader(SocksReader)
 				if err != nil {
 					logger.Error("Failed to read socks header: " + err.Error())
 					return
@@ -1976,6 +2144,17 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				err := Socks.Start()
 				if err != nil {
 					Socks.Failed = true
+					// drop the dead server from the list so `socks list`
+					// doesn't keep showing a proxy that never bound
+					a.SocksSvrMtx.Lock()
+					for i := range a.SocksSvr {
+						if a.SocksSvr[i].Server == Socks {
+							a.SocksSvr = append(a.SocksSvr[:i], a.SocksSvr[i+1:]...)
+							break
+						}
+					}
+					a.SocksSvrMtx.Unlock()
+					logger.Error("Failed to start socks proxy on port " + Param + ": " + err.Error())
 					if Message != nil {
 						*Message = map[string]string{
 							"Type":    "Error",
@@ -2163,8 +2342,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 			SubCommand string
 		)
 
-		if val, ok := Optional["Command"]; ok {
-			SubCommand = val.(string)
+		if val, ok := Optional["Command"].(string); ok {
+			SubCommand = val
 		} else {
 			return job, errors.New("kerberos field Command is empty")
 		}
@@ -2184,8 +2363,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				arg2 string
 			)
 
-			if val, ok := Optional["Argument1"]; ok {
-				arg1 = val.(string)
+			if val, ok := Optional["Argument1"].(string); ok {
+				arg1 = val
 			} else {
 				return job, errors.New("klist field Argument1 is empty")
 			}
@@ -2196,8 +2375,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 					0,
 				}
 			} else if arg1 == "/luid" {
-				if val, ok := Optional["Argument2"]; ok {
-					arg2 = val.(string)
+				if val, ok := Optional["Argument2"].(string); ok {
+					arg2 = val
 					if strings.HasPrefix(arg2, "0x") {
 						luid, err = strconv.ParseInt(arg2[2:], 16, 64)
 					} else {
@@ -2224,8 +2403,8 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				arg1 string
 			)
 
-			if val, ok := Optional["Argument"]; ok {
-				arg1 = val.(string)
+			if val, ok := Optional["Argument"].(string); ok {
+				arg1 = val
 			} else {
 				return job, errors.New("purge field Argument is empty")
 			}
@@ -2253,13 +2432,18 @@ func (a *Agent) TaskPrepare(Command int, Info any, Message *map[string]string, C
 				ticket []byte
 			)
 
-			ticket, err = base64.StdEncoding.DecodeString(Optional["Ticket"].(string))
+			TicketStr, ok := Optional["Ticket"].(string)
+			if !ok {
+				return job, errors.New("ptt field Ticket is empty")
+			}
+
+			ticket, err = base64.StdEncoding.DecodeString(TicketStr)
 			if err != nil {
 				return job, errors.New("ptt field Ticket is invalid")
 			}
 
-			if val, ok := Optional["Luid"]; ok {
-				arg = val.(string)
+			if val, ok := Optional["Luid"].(string); ok {
+				arg = val
 			} else {
 				return job, errors.New("ptt field Luid is empty")
 			}
@@ -2404,6 +2588,15 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				WorkingHours = int32(Parser.ParseInt32())
 
 				a.Active = true
+
+				// The checkin payload's DemonID must match the identity this
+				// session already registered under; never adopt a new one.
+				if fmt.Sprintf("%08x", DemonID) != a.NameID {
+					Message["Type"] = "Error"
+					Message["Message"] = fmt.Sprintf("Checkin claims ID %08x but session is %s; rejected", DemonID, a.NameID)
+					teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
+					return
+				}
 
 				a.NameID = fmt.Sprintf("%08x", DemonID)
 				a.Info.Hostname = Hostname
@@ -2864,6 +3057,12 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 							WhatToRead = []parser.ReadType{parser.ReadBytes, parser.ReadInt32, parser.ReadInt32, parser.ReadInt64}
 						}
 						for Parser.CanIRead(WhatToRead) {
+							// one directory block per iteration: reset the
+							// per-block accumulators so entries of previous
+							// blocks don't leak into this block's payload (M81)
+							DirMap = make(map[string]any)
+							DirArr = nil
+
 							var (
 									RootDirPath   = Parser.ParseUTF16String()
 									NumFiles      = Parser.ParseInt32()
@@ -2915,7 +3114,13 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 								ReadOne = true
 
 								if ListOnly {
-									Dir += fmt.Sprintf("%s%s\n", RootDirPath[:len(RootDirPath)-1], FileName)
+									// RootDirPath is implant-controlled: an
+									// empty field would slice to [-1] and panic
+									if len(RootDirPath) > 0 {
+										Dir += fmt.Sprintf("%s%s\n", RootDirPath[:len(RootDirPath)-1], FileName)
+									} else {
+										Dir += fmt.Sprintf("%s\n", FileName)
+									}
 								} else {
 									LastModified = fmt.Sprintf("%02d/%02d/%d  %02d:%02d", LastAccessDay, LastAccessMonth, LastAccessYear, LastAccessHour, LastAccessMinute)
 									if IsDir {
@@ -3584,6 +3789,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				Message["Message"] = "Failed to inject reflective dll: " + String
 			}
 
+			a.RequestCompleted(RequestID)
 			teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
 		} else {
 			logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_INJECT_DLL, Invalid packet", AgentID))
@@ -3614,6 +3820,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 				Message["Message"] = "Failed to spawned reflective dll: " + String
 			}
 
+			a.RequestCompleted(RequestID)
 			teamserver.AgentConsole(a.NameID, HAVOC_CONSOLE_MESSAGE, Message)
 		} else {
 			logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_SPAWNDLL, Invalid packet", AgentID))
@@ -4089,8 +4296,10 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 
 					Message["Type"] = "Error"
 					Message["Message"] = fmt.Sprintf("Win32 Error: %v [%v]", ErrorString, ErrorCode)
-					// TODO: can we expect more messages from this request?
-					//a.RequestCompleted(RequestID)
+					// complete the request here as well: otherwise every
+					// failed task pins its entry (and its payload bytes)
+					// in a.Tasks forever (M72)
+					a.RequestCompleted(RequestID)
 				} else {
 					logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_ERROR - ERROR_WIN32_LASTERROR, Invalid packet", AgentID))
 				}
@@ -5234,41 +5443,50 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 									if teamserver.AgentExist(AgentHdr.AgentID) {
 
 										DemonInfo = teamserver.AgentInstance(AgentHdr.AgentID)
-										Message["MiscType"] = "reconnect"
-										Message["MiscData"] = fmt.Sprintf("%v;%x", a.NameID, AgentHdr.AgentID)
 
-										if DemonInfo.Pivots.Parent != nil {
-											for i := range DemonInfo.Pivots.Parent.Pivots.Links {
-												if DemonInfo.Pivots.Parent.Pivots.Links[i].NameID == fmt.Sprintf("%08x", AgentHdr.AgentID) {
-													DemonInfo.Pivots.Parent.Pivots.Links = append(DemonInfo.Pivots.Parent.Pivots.Links[:i], DemonInfo.Pivots.Parent.Pivots.Links[i+1:]...)
-													break
-												}
+										// the agent can be removed between AgentExist and
+										// AgentInstance; without this check that race nil-derefs
+										if DemonInfo != nil {
+											Message["MiscType"] = "reconnect"
+											Message["MiscData"] = fmt.Sprintf("%v;%x", a.NameID, AgentHdr.AgentID)
+
+											if Parent := DemonInfo.PivotsParent(); Parent != nil {
+												Parent.PivotLinkRemove(fmt.Sprintf("%08x", AgentHdr.AgentID))
 											}
+
+											// read under a.m by ToMap
+											DemonInfo.m.Lock()
+											DemonInfo.Active = true
+											DemonInfo.Reason = ""
+											DemonInfo.m.Unlock()
+											DemonInfo.PivotParentSet(a)
+
+											a.PivotLinkAdd(DemonInfo)
+											teamserver.LinkAdd(a, DemonInfo)
+
+											teamserver.AgentUpdate(DemonInfo)
+											teamserver.AgentUpdate(a)
 										}
-
-										DemonInfo.Active = true
-										DemonInfo.Reason = ""
-										DemonInfo.Pivots.Parent = a
-
-										a.Pivots.Links = append(a.Pivots.Links, DemonInfo)
-										teamserver.LinkAdd(a, DemonInfo)
-
-										teamserver.AgentUpdate(DemonInfo)
-										teamserver.AgentUpdate(a)
 
 									} else {
 										// if the agent doesn't exist then we assume that it's a register request from a new agent
 
 										DemonInfo = ParseDemonRegisterRequest(AgentHdr.AgentID, AgentHdr.Data, "")
-										DemonInfo.Pivots.Parent = a
 
-										a.Pivots.Links = append(a.Pivots.Links, DemonInfo)
-										teamserver.LinkAdd(a, DemonInfo)
+										// ParseDemonRegisterRequest returns nil when the nested
+										// register packet fails to parse; a malformed pivot
+										// response must not take down the handler
+										if DemonInfo != nil {
+											DemonInfo.PivotParentSet(a)
 
-										DemonInfo.Info.MagicValue = AgentHdr.MagicValue
+											a.PivotLinkAdd(DemonInfo)
+											teamserver.LinkAdd(a, DemonInfo)
 
-										teamserver.AgentAdd(DemonInfo)
-										teamserver.AgentSendNotify(DemonInfo)
+											DemonInfo.Info.MagicValue = AgentHdr.MagicValue
+
+											teamserver.AgentAdd(DemonInfo)
+											teamserver.AgentSendNotify(DemonInfo)
+										}
 									}
 
 									if DemonInfo != nil {
@@ -5366,7 +5584,9 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 							var PivotAgent *Agent
 
 							PivotAgent = teamserver.AgentInstance(AgentHdr.AgentID)
-							if PivotAgent != nil {
+							if PivotAgent != nil && PivotAgent.PivotsParent() == a {
+								// only accept pivot traffic from the
+								// registered parent of the claimed child
 								PivotAgent.UpdateLastCallback(teamserver)
 								//logger.Debug(fmt.Sprintf("Agent: %x, Command: COMMAND_PIVOT - DEMON_PIVOT_SMB_COMMAND, Linked Agent: %s, Command: %d", AgentID, PivotAgent.NameID, Command))
 
@@ -5390,7 +5610,7 @@ func (a *Agent) TaskDispatch(RequestID uint32, CommandID uint32, Parser *parser.
 								}
 							} else {
 								Message["Type"] = "Error"
-								Message["Message"] = fmt.Sprintf("Can't process output for %x: Agent not found", AgentHdr.AgentID)
+								Message["Message"] = fmt.Sprintf("Can't process output for %x: Agent not found or sender is not its pivot parent", AgentHdr.AgentID)
 							}
 
 						} else {
