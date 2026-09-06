@@ -272,27 +272,28 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                     FoundSubCommand = true;
 
                                     DemonConsole->Console->append( "" );
-                                    DemonConsole->Console->append( " - Module        :  " + commandIndex.CommandString );
-                                    DemonConsole->Console->append( " - Sub Command   :  " + SubCommand.CommandString.toHtmlEscaped() );
-                                    DemonConsole->Console->append( " - Description   :  " + SubCommand.Description.toHtmlEscaped() );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Module") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan(commandIndex.CommandString.toHtmlEscaped()) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Sub Command") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan(SubCommand.CommandString.toHtmlEscaped()) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Description") + Util::ColorText::Comment(": ") + SubCommand.Description.toHtmlEscaped() );
+
 
                                     if ( ! SubCommand.Behavior.isEmpty() )
-                                        DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior.toHtmlEscaped() );
+                                        DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Behavior") + Util::ColorText::Comment(": ") + SubCommand.Behavior.toHtmlEscaped() );
 
                                     if ( ! SubCommand.Usage.isEmpty() )
-                                        DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " "+ SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Usage.toHtmlEscaped() );
+                                        DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Usage") + Util::ColorText::Comment(": ") + Util::ColorText::Orange(commandIndex.CommandString) + " " + SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Usage.toHtmlEscaped() );
 
                                     if ( ! SubCommand.Example.isEmpty() )
-                                        DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " "+ SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Example.toHtmlEscaped() );
+                                        DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Example") + Util::ColorText::Comment(": ") + Util::ColorText::Orange(commandIndex.CommandString) + " " + SubCommand.CommandString.toHtmlEscaped() + " " + SubCommand.Example.toHtmlEscaped() );
                                     /*
                                     if ( ! SubCommand.Usage.isEmpty() )
                                         DemonConsole->Console->append( " - Required Args :  " + QString( to_string( SubCommand.Usage.split( " " ).size() ).c_str() ) );*/
 
                                     if ( ! SubCommand.Options.isEmpty() )
                                     {
-                                        DemonConsole->Console->append( " - Options       :  " );
+                                        DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Options") + Util::ColorText::Comment(":") );
                                         for ( auto& Option : SubCommand.Options )
-                                            DemonConsole->Console->append( "      " + Option.toHtmlEscaped());
+                                            DemonConsole->Console->append( "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + Util::ColorText::Cyan(Option.toHtmlEscaped()) );
                                     }
 
                                     break;
@@ -310,19 +311,19 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                             FoundSubCommand = true;
 
                                             DemonConsole->Console->append( "" );
-                                            DemonConsole->Console->append( " - Module        :  " + QString( Command.Module.c_str() ).toHtmlEscaped() );
-                                            DemonConsole->Console->append( " - Sub Command   :  " + QString( Command.Command.c_str() ).toHtmlEscaped() );
-                                            DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
+                                            DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Module") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan(commandIndex.CommandString.toHtmlEscaped()) );
+                                            DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Sub Command") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan( QString( Command.Command.c_str() ).toHtmlEscaped() ) );
+                                            DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Description") + Util::ColorText::Comment(": ") + QString( Command.Help.c_str() ).toHtmlEscaped() );
+
 
                                             // if ( Command.Behavior != 0 )
                                             //     DemonConsole->Console->append( " - Behavior      :  " + SubCommand.Behavior.toHtmlEscaped() );
 
                                             if ( Command.Usage.c_str() )
-                                                DemonConsole->Console->append( " - Usage         :  " + QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Usage.c_str() ).toHtmlEscaped() );
+                                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Usage") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) + " " + QString( Command.Usage.c_str() ).toHtmlEscaped() );
 
                                             if ( Command.Example.c_str() )
-                                                DemonConsole->Console->append( " - Example       :  " + QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
-
+                                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Example") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
                                             /*if ( ! QString( Command.Usage.c_str() ).isEmpty() )
                                                 DemonConsole->Console->append( " - Required Args :  " + QString( to_string( SubCommand.Usage.split( " " ).size() ).c_str() ) );*/
                                         }
@@ -339,17 +340,28 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                         else
                         {
                             DemonConsole->Console->append( "" );
-                            DemonConsole->Console->append( " - Command       :  " + commandIndex.CommandString.toHtmlEscaped() );
-                            DemonConsole->Console->append( " - Description   :  " + commandIndex.Description.toHtmlEscaped() );
+                            DemonConsole->Console->append(
+                                Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Command") +
+                                Util::ColorText::Comment(": ") + Util::ColorText::Cyan(commandIndex.CommandString.toHtmlEscaped()));
+                            DemonConsole->Console->append(
+                                Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Description") +
+                                Util::ColorText::Comment(": ") + commandIndex.Description.toHtmlEscaped());
 
                             if ( ! commandIndex.Behavior.isEmpty() )
-                                DemonConsole->Console->append( " - Behavior      :  " + commandIndex.Behavior.toHtmlEscaped() );
+                                DemonConsole->Console->append(
+                                    Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Behaviour") +
+                                    Util::ColorText::Comment(": ") + Util::ColorText::Cyan(commandIndex.Behavior.toHtmlEscaped()));
 
                             if ( ! commandIndex.Usage.isEmpty() )
-                                DemonConsole->Console->append( " - Usage         :  " + commandIndex.CommandString + " " + commandIndex.Usage.toHtmlEscaped() );
+                                DemonConsole->Console->append(
+                                    Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Usage") +
+                                    Util::ColorText::Comment(": ") + Util::ColorText::Orange(commandIndex.Usage.toHtmlEscaped()));
 
                             if ( ! commandIndex.Example.isEmpty() )
-                                DemonConsole->Console->append( " - Example       :  " + commandIndex.CommandString + " " + commandIndex.Example.toHtmlEscaped() );
+                                DemonConsole->Console->append(
+                                Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Example") +
+                                Util::ColorText::Comment(": ") + Util::ColorText::Cyan(commandIndex.Example.toHtmlEscaped())
+                                );
 
                             if ( ! commandIndex.Usage.isEmpty() && commandIndex.SubCommands.empty() )
                                 DemonConsole->Console->append(" - Required Args :  " + QString(to_string(commandIndex.Usage.split(" ").size()).c_str()));
@@ -419,45 +431,61 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 for ( auto& Command : HavocX::Teamserver.RegisteredCommands )
                                 {
                                     if ( InputCommands[ 1 ].compare( Command.Module.c_str() ) == 0 && InputCommands[ 2 ].compare( Command.Command.c_str() ) == 0 )
-                                    {
-                                        DemonConsole->Console->append( "" );
-                                        DemonConsole->Console->append( " - Command       :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() );
-                                        DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
+                                        {
+                                            DemonConsole->Console->append( "" );
+                                            DemonConsole->Console->append(
+                                                Util::ColorText::Comment( " - " ) + Util::ColorText::Yellow( "Command" ) +
+                                                Util::ColorText::Comment( ": " ) +
+                                                Util::ColorText::Cyan( QString( Module.Name.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) );
+                                            DemonConsole->Console->append(
+                                                Util::ColorText::Comment( " - " ) + Util::ColorText::Yellow( "Description" ) +
+                                                Util::ColorText::Comment( ": " ) + QString( Command.Help.c_str() ).toHtmlEscaped() );
 
-                                        if ( ! Module.Usage.empty() )
-                                            DemonConsole->Console->append( " - Usage         :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Usage.c_str() ).toHtmlEscaped()  );
+                                            if ( ! Module.Usage.empty() )
+                                                DemonConsole->Console->append(
+                                                    Util::ColorText::Comment( " - " ) + Util::ColorText::Yellow( "Usage" ) +
+                                                    Util::ColorText::Comment( ": " ) +
+                                                    Util::ColorText::Orange( QString( Module.Name.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) +
+                                                    " " + QString( Command.Usage.c_str() ).toHtmlEscaped() );
 
-                                        if ( ! Command.Example.empty() )
-                                            DemonConsole->Console->append( " - Example       :  " + QString( Module.Name.c_str() ).toHtmlEscaped() + QString( " " ) + QString( Command.Command.c_str() ).toHtmlEscaped() + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
+                                            if ( ! Command.Example.empty() )
+                                                DemonConsole->Console->append(
+                                                    Util::ColorText::Comment( " - " ) + Util::ColorText::Yellow( "Example" ) +
+                                                    Util::ColorText::Comment( ": " ) +
+                                                    Util::ColorText::Orange( QString( Module.Name.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) +
+                                                    " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
 
-                                        if ( ! Command.Usage.empty() )
-                                            DemonConsole->Console->append(" - Required Args :  " + QString( to_string( QString( Command.Usage.c_str() ).split(" ").size() ).c_str() ) );
+                                            if ( ! Command.Usage.empty() )
+                                                DemonConsole->Console->append(
+                                                    Util::ColorText::Comment( " - " ) + Util::ColorText::Yellow( "Required Args" ) +
+                                                    Util::ColorText::Comment( ": " ) +
+                                                    QString( to_string( QString( Command.Usage.c_str() ).split( " " ).size() ).c_str() ) );
 
-                                        break;
-                                    }
+                                            break;
+                                        }
                                 }
                             }
                             else
                             {
                                 DemonConsole->Console->append( "" );
-                                DemonConsole->Console->append( " - Command       :  " + QString( Module.Name.c_str() ) );
-                                DemonConsole->Console->append( " - Description   :  " + QString( Module.Description.c_str() ) );
+                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Command") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan(QString( Module.Name.c_str() ).toHtmlEscaped()) );
+                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Description") + Util::ColorText::Comment(": ") + QString( Module.Description.c_str() ).toHtmlEscaped() );
 
                                 if ( ! Module.Behavior.empty() )
-                                    DemonConsole->Console->append( " - Behavior      :  " + QString( Module.Behavior.c_str() ) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Behavior") + Util::ColorText::Comment(": ") + QString( Module.Behavior.c_str() ).toHtmlEscaped() );
 
                                 if ( ! Module.Usage.empty() )
-                                    DemonConsole->Console->append( " - Usage         :  " + QString( Module.Name.c_str() ) + " " + QString( Module.Usage.c_str() )  );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Usage") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Module.Name.c_str() ).toHtmlEscaped() ) + " " + QString( Module.Usage.c_str() ).toHtmlEscaped() );
 
                                 if ( ! Module.Example.empty() )
-                                    DemonConsole->Console->append( " - Example       :  " + QString( Module.Name.c_str() ) + " " + QString( Module.Example.c_str() ) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Example") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Module.Name.c_str() ).toHtmlEscaped() ) + " " + QString( Module.Example.c_str() ).toHtmlEscaped() );
 
                                 if ( ! Module.Usage.empty() )
-                                    DemonConsole->Console->append(" - Required Args :  " + QString( to_string( QString( Module.Usage.c_str() ).split(" ").size() ).c_str() ) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Required Args") + Util::ColorText::Comment(": ") + QString( to_string( QString( Module.Usage.c_str() ).split(" ").size() ).c_str() ) );
 
                                 DemonConsole->Console->append( "" );
-                                DemonConsole->Console->append( "  Command                   Description      " );
-                                DemonConsole->Console->append( "  ---------                 -------------     " );
+                                DemonConsole->Console->append( "&nbsp;&nbsp;" + Util::ColorText::Yellow("Command") + QString(19, QChar(' ')).replace(' ', "&nbsp;") + Util::ColorText::Yellow("Description") );
+                                DemonConsole->Console->append( Util::ColorText::Comment("&nbsp;&nbsp;---------&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-------------") );
 
                                 for ( auto& Command : HavocX::Teamserver.RegisteredCommands )
                                 {
@@ -467,9 +495,9 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                         auto        CmdSize     = ( int ) Command.Command.size();
                                         if ( CmdSize > TotalSize )
                                             CmdSize = TotalSize;
-                                        std::string Spaces      = std::string( ( TotalSize - CmdSize ), ' ' );
+                                        QString nbspPad = QString( std::string( ( TotalSize - CmdSize ), ' ' ).c_str() ).replace(' ', "&nbsp;");
 
-                                        DemonConsole->Console->append( "  " + QString( Command.Command.c_str() ).toHtmlEscaped() + QString( Spaces.c_str() ) + "       " + QString( Command.Help.c_str() ).toHtmlEscaped() );
+                                        DemonConsole->Console->append( "&nbsp;&nbsp;" + Util::ColorText::Cyan( QString( Command.Command.c_str() ).toHtmlEscaped() ) + nbspPad + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + QString( Command.Help.c_str() ).toHtmlEscaped() );
                                     }
                                 }
                             }
@@ -486,15 +514,14 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                                 FoundCommand = true;
 
                                 DemonConsole->Console->append( "" );
-                                DemonConsole->Console->append( " - Command       :  " + QString( Command.Command.c_str() ) );
-                                DemonConsole->Console->append( " - Description   :  " + QString( Command.Help.c_str() ).toHtmlEscaped() );
+                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Command") + Util::ColorText::Comment(": ") + Util::ColorText::Cyan( QString( Command.Command.c_str() ).toHtmlEscaped() ) );
+                                DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Description") + Util::ColorText::Comment(": ") + QString( Command.Help.c_str() ).toHtmlEscaped() );
 
                                 if ( Command.Usage.c_str() )
-                                    DemonConsole->Console->append( " - Usage         : " + QString( Command.Module.c_str() ) + " " + QString( Command.Command.c_str() ) + " " + QString( Command.Usage.c_str() ) );
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Usage") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) + " " + QString( Command.Usage.c_str() ).toHtmlEscaped() );
 
                                 if ( Command.Example.c_str() )
-                                    DemonConsole->Console->append( " - Example       : " + QString( Command.Module.c_str() ) + " " + QString( Command.Command.c_str() ) + " " + QString( Command.Example.c_str() ) );
-
+                                    DemonConsole->Console->append( Util::ColorText::Comment(" - ") + Util::ColorText::Yellow("Example") + Util::ColorText::Comment(": ") + Util::ColorText::Orange( QString( Command.Module.c_str() ).toHtmlEscaped() + " " + QString( Command.Command.c_str() ).toHtmlEscaped() ) + " " + QString( Command.Example.c_str() ).toHtmlEscaped() );
                             }
                         }
                     }
@@ -511,34 +538,46 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 std::vector<QString> commandOutput;
 
                 for (auto &i : DemonCommandList)
-                {
-                    QString currentLine;
-
-                    if (!i.SubCommands.empty() || i.Module)
                     {
-                        if (i.Module)
+                        QString currentLine;
+
+                        QString nbspPad = QString(
+                            std::string((std::max(0, TotalSize - (int)i.CommandString.size())), ' ').c_str()
+                        ).replace(' ', "&nbsp;");
+
+                        if (!i.SubCommands.empty() || i.Module)
                         {
-                            currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Module " + "      " + i.Description;
-                        }
-                        else if (!i.SubCommands.empty())
-                        {
-                            if (i.SubCommands[0].CommandString != nullptr)
+                            if (i.Module)
                             {
-                                currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Module " + "      " + i.Description;
+                                currentLine = "&nbsp;&nbsp;" + Util::ColorText::Cyan(i.CommandString) + nbspPad
+                                    + Util::ColorText::Purple("Module") + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                                    + i.Description.toHtmlEscaped();
+                            }
+                            else if (!i.SubCommands.empty())
+                            {
+                                if (i.SubCommands[0].CommandString != nullptr)
+                                {
+                                    currentLine = "&nbsp;&nbsp;" + Util::ColorText::Cyan(i.CommandString) + nbspPad
+                                        + Util::ColorText::Purple("Module") + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                                        + i.Description.toHtmlEscaped();
+                                }
+                            }
+                            else
+                            {
+                                currentLine = "&nbsp;&nbsp;" + Util::ColorText::Cyan(i.CommandString) + nbspPad
+                                    + Util::ColorText::Green("Command") + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                                    + i.Description.toHtmlEscaped();
                             }
                         }
                         else
                         {
-                            currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Command" + "      " + i.Description;
+                            currentLine = "&nbsp;&nbsp;" + Util::ColorText::Cyan(i.CommandString) + nbspPad
+                                + Util::ColorText::Green("Command") + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                                + i.Description.toHtmlEscaped();
                         }
-                    }
-                    else
-                    {
-                        currentLine = "  " + i.CommandString + QString(std::string((std::max( 0, TotalSize - (int)i.CommandString.size() )), ' ').c_str()) + "Command" + "      " + i.Description;
-                    }
 
-                    commandOutput.push_back(currentLine);
-                }
+                        commandOutput.push_back(currentLine);
+                    }
 
                 for (auto &Module : HavocX::Teamserver.RegisteredModules)
                 {
@@ -562,12 +601,18 @@ auto DemonCommands::DispatchCommand( bool Send, QString TaskID, const QString& c
                 std::sort(commandOutput.begin(), commandOutput.end(), compareQString);
 
                 // Append the sorted commands to the console
+                DemonConsole->Console->append(Util::ColorText::Green("Demon Commands"));
+                DemonConsole->Console->append(Util::ColorText::Comment("=============="));
                 DemonConsole->Console->append("");
-                DemonConsole->Console->append("Demon Commands");
-                DemonConsole->Console->append("==============");
-                DemonConsole->Console->append("");
-                DemonConsole->Console->append("  Command                  Type         Description");
-                DemonConsole->Console->append("  -------                  -------      -----------");
+                DemonConsole->Console->append(
+                    "&nbsp;&nbsp;" + Util::ColorText::Yellow("Command") +
+                    QString(18, QChar(' ')).replace(' ', "&nbsp;") +
+                    Util::ColorText::Yellow("Type") +
+                    QString(9, QChar(' ')).replace(' ', "&nbsp;") +
+                    Util::ColorText::Yellow("Description"));
+                DemonConsole->Console->append(Util::ColorText::Comment("  -------&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-------&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-----------"));
+
+
 
                 for (const auto &output : commandOutput)
                 {
