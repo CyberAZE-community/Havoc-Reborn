@@ -186,6 +186,7 @@ func NewBuilder(config BuilderConfig) *Builder {
 			"-fno-ident -fpack-struct=8 -falign-functions=1",
 			"-ffunction-sections -fdata-sections -falign-jumps=1 -w",
 			"-falign-labels=1 -fPIC",
+			"-Wno-incompatible-pointer-types -Wno-int-conversion -Wno-implicit-function-declaration",
 			"-Wl,--no-seh,--enable-stdcall-fixup,--gc-sections",
 		}
 	} else {
@@ -195,6 +196,7 @@ func NewBuilder(config BuilderConfig) *Builder {
 			"-fno-ident -fpack-struct=8 -falign-functions=1",
 			"-s -ffunction-sections -fdata-sections -falign-jumps=1 -w",
 			"-falign-labels=1 -fPIC",
+			"-Wno-incompatible-pointer-types -Wno-int-conversion -Wno-implicit-function-declaration",
 			"-Wl,-s,--no-seh,--enable-stdcall-fixup,--gc-sections",
 		}
 	}

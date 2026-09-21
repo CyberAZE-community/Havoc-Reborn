@@ -12,6 +12,8 @@ INT     StringCompareA( LPCSTR String1, LPCSTR String2 );
 INT     StringCompareW( LPWSTR String1, LPWSTR String2 );
 INT     StringNCompareW( LPWSTR String1, LPWSTR String2, INT Length );
 INT     StringNCompareIW( LPWSTR String1, LPWSTR String2, INT Length );
+INT     StringCompareIW( LPWSTR String1, LPWSTR String2 );
+BOOL    EndsWithIW( LPWSTR String, LPWSTR Ending );
 PCHAR   StringCopyA( PCHAR String1, PCHAR String2 );
 PWCHAR  StringCopyW(PWCHAR String1, PWCHAR String2);
 SIZE_T  StringLengthA( LPCSTR String );

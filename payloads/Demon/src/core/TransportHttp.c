@@ -13,7 +13,7 @@
 VOID HttpProxyInfoFree(
 ) {
     if ( Instance->ProxyForUrl ) {
-        PWINHTTP_PROXY_INFO ProxyInfo = ( PWINHTTP_PROXY_INFO ) Instance->ProxyForUrl;
+        LPWINHTTP_PROXY_INFO ProxyInfo = ( LPWINHTTP_PROXY_INFO ) Instance->ProxyForUrl;
 
         if ( ProxyInfo->lpszProxy ) {
             Instance->Win32.GlobalFree( ProxyInfo->lpszProxy );

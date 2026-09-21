@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
-
+- Demon payload build with MinGW/GCC 14+ (incl. GCC 15's default C23 mode): `SysInvoke` is now declared with a `(...)` prototype (`()` became `(void)` in C23, breaking every syscall wrapper); added missing declarations for `StringCompareIW`/`EndsWithIW` (MiniStd.h), `GetTokenInfo`/`IsNotCurrentUser` (Token.h) and the `RtMscoree` include in Command.c; `BeaconSpawnTemporaryProcess` now takes `STARTUPINFOW*` matching the `CreateProcessW`/`CreateProcessWithTokenW` calls. The payload builder also passes `-Wno-incompatible-pointer-types -Wno-int-conversion -Wno-implicit-function-declaration` for the remaining legacy-C diagnostics GCC 14 promotes to errors. Also fixed `HttpProxyInfoFree` using the nonexistent `PWINHTTP_PROXY_INFO` type (`LPWINHTTP_PROXY_INFO` in mingw-w64).
 - Teamserver: tasking an agent hollowed the event-history entry for that task — the dispatch path deleted every key from the shared `Body.Info` map in place, so reconnecting operators replayed tasks without TaskID/DemonID/CommandLine — and worse, concurrent iteration of that same map during the delete loop crashed the whole teamserver with an unrecoverable `concurrent map iteration and map write` fatal; the dispatch paths now rebind a fresh map instead of mutating the shared one.
 - Teamserver: building a payload against a listener configured with both `Headers` and `HostHeader` appended `Host: …` into the live listener's mandatory-header list, where net/http's Host promotion made the check unpassable — every subsequent implant callback was served the fake 404 until teamserver restart (the listener was bricked); the build now works on a copy of the header list.
 - Teamserver: `DEMON_PIVOT_SMB_COMMAND` dispatched task output, liveness updates and (given the child's AES key) full forged tasking against any agent named in the inner header, with no binding between the sending implant and the claimed pivot child; pivot traffic is now only accepted from the child's registered pivot parent, and otherwise rejected with an error message.
@@ -176,6 +176,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Demon: `ProcessCreate` compiled a `break` with no enclosing loop/switch (allocation-failure path in the exec-info block) — a build error; it now reports `ERROR_NOT_ENOUGH_MEMORY` through the normal error package and unwinds via `Cleanup` like every other failure path in the function, instead of transmitting a header-only process-create package the client parser would misread.
 - Demon: `HttpSend`'s response-buffer allocation-failure path returned early, skipping the `LEAVE` cleanup (WinHTTP handles, proxy strings, host rotation on failure, and the thread's `TokenImpersonate(TRUE)`); it now unwinds through the common exit.
 - Demon: the socks reverse-proxy resolve-failure log printed the parsed domain name after it had been freed and nulled; the failure is now logged where the query happens, before the free.
+
 ## [0.8.0] - 2026-08-20
 
 ### Changed
