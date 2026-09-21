@@ -193,4 +193,8 @@ BOOL ImpersonateTokenInStore(
 
 BOOL SysImpersonateLoggedOnUser( HANDLE hToken );
 
+BOOL GetTokenInfo( HANDLE hToken, PDWORD pTokenType, PDWORD pIntegrity, PDWORD pImpersonationLevel, PBUFFER UserDomain );
+
+BOOL IsNotCurrentUser( BOOL DoCheck, PBUFFER UserA, PBUFFER UserB );
+
 #endif

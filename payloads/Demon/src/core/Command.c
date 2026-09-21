@@ -3,6 +3,7 @@
 #include <common/Macros.h>
 
 #include <core/Command.h>
+#include <core/Runtime.h>
 #include <core/Token.h>
 #include <core/Package.h>
 #include <core/MiniStd.h>
