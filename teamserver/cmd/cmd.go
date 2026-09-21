@@ -12,7 +12,7 @@ import (
 
 var (
 	VersionNumber = "0.8.2"
-	VersionName   = "Bites The Dust"
+	VersionName   = "Crazy Diamond"
 	VersionCommit = ""
 	DatabasePath  = "data/teamserver.db"
 
