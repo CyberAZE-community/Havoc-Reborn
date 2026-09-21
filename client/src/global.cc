@@ -11,7 +11,7 @@ using namespace HavocNamespace;
 using namespace HavocNamespace::HavocSpace;
 
 string HavocNamespace::Version  = "0.8.2";
-string HavocNamespace::CodeName = "Bites The Dust";
+string HavocNamespace::CodeName = "Crazy Diamond";
 
 // Global Variables in the Havoc Namespace
 HavocSpace::Havoc* HavocNamespace::HavocApplication;
