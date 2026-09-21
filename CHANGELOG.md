@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.8.2] - 2026-09-21
 
 ### Fixed
 - Version banner showed the stale upstream codename "Bites The Dust"; the 0.8.x codename is "Crazy Diamond" (teamserver CLI and client About/banner).
@@ -75,10 +75,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Teamserver: residual `rand.Seed(time.Now().UnixNano())` on the global math/rand source (pipe-template pick and `GeneratePipeName`/`GetRandomChar`, whose output feeds SMB pipe names) replaced with crypto/rand; concurrent global-rand consumers no longer correlate.
 - Teamserver: certificate generation called `logger.Fatal` (os.Exit) on a signing failure, killing the whole teamserver; it now logs the error and propagates it to the caller.
 - Teamserver: the CLI banner reported the stale version string `0.7.2`; it now matches the release version (`0.8.2`, same as the client).
-
-## [0.8.2] - 2026-08-28
-
-### Fixed
 
 - Teamserver: the `agent.command` Encryption scrub for service agents used an invalid type assertion on a concrete map — the teamserver did not compile; the scrub now deletes the key directly.
 - Teamserver: the HTTP listener bound its port inside the serve goroutine, so a failed bind (port in use) was only discovered after the listener had been registered as online; `Start()` now validates the TLS certificate pair and binds synchronously — a failed bind or bad cert is reported and the listener is not registered — which also removes the race where `Stop()` read `h.Server` while the serve goroutine wrote it, and the window where `Stop()` right after `Start()` wrongly reported the listener as not running. The dead post-shutdown `select` in `Stop()` (which always blocked the full 5-second timeout) is gone.
